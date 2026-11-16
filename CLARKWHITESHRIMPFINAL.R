@@ -1033,6 +1033,141 @@ fall_mapped %>%
 
 
 # ============================================================
+# SEASONAL WHITE SHRIMP CATCH: APRIL–OCTOBER
+# ============================================================
+
+# Combine sampling events before September–October filtering
+seasonal_data <- bind_rows(
+  white_shrimp_1990_2012 %>%
+    transmute(
+      Year, Month,
+      Gear = as.character(`Gear Code`),
+      abundance, presence
+    ),
+  white_shrimp_2013_2016 %>%
+    transmute(
+      Year, Month,
+      Gear = as.character(Gear),
+      abundance, presence
+    ),
+  white_shrimp_2017_2018 %>%
+    transmute(
+      Year, Month,
+      Gear = as.character(Gear),
+      abundance, presence
+    )
+) %>%
+  filter(
+    Year >= 1990,
+    Year <= 2018,
+    Month %in% 4:10,
+    Gear %in% c("BTRW"),
+    !is.na(abundance)
+  ) %>%
+  mutate(
+    Month = factor(
+      Month,
+      levels = 4:10,
+      labels = month.name[4:10]
+    )
+  )
+
+# Summarize seasonal catch by gear and month
+seasonal_summary <- seasonal_data %>%
+  group_by(Gear, Month) %>%
+  summarise(
+    sampling_events = n(),
+    positive_events = sum(abundance > 0),
+    total_shrimp = sum(abundance),
+    mean_catch = mean(abundance),
+    occurrence_percent =
+      100 * mean(abundance > 0),
+    .groups = "drop"
+  )
+
+print(seasonal_summary, n = Inf)
+
+
+fig_seasonal_catch <- ggplot(
+  seasonal_summary,
+  aes(
+    x = Month,
+    y = mean_catch,
+    fill = Gear
+  )
+) +
+  geom_col(
+    width = 0.7,
+    color = "black",
+    linewidth = 0.2
+  )  +
+  labs(
+    x = "Sampling month",
+    y = "Mean white shrimp catch per sampling event",
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1
+    ),
+    strip.text = element_text(
+      face = "bold"
+    )
+  )
+
+fig_seasonal_catch
+
+
+
+fig_seasonal_occurrence <- ggplot(
+  seasonal_summary,
+  aes(
+    x = Month,
+    y = occurrence_percent,
+    fill = Gear
+  )
+) +
+  geom_col(
+    width = 0.7,
+    color = "black",
+    linewidth = 0.2
+  ) +
+  facet_wrap(
+    ~ Gear,
+    ncol = 1
+  ) +
+  scale_fill_manual(
+    values = c(
+      "BTRW" = "red3"
+    )
+  ) +
+  scale_y_continuous(
+    limits = c(0, 100)
+  ) +
+  labs(
+    x = "Sampling month",
+    y = "Sampling events with white shrimp (%)"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1
+    ),
+    strip.text = element_text(
+      face = "bold"
+    )
+  )
+
+fig_seasonal_occurrence
+
+
+
+
+# ============================================================
 # 4. AUDIT FINAL 1990–2018 DATASET
 # ============================================================
 
@@ -1067,7 +1202,8 @@ annual_1990_2018 <- fall_1990_2018 %>%
     .groups = "drop"
   )
 
-print(annual_1990_2018, n = Inf)
+print(annual_1990_2018, n = Inf) 
+
 
 
 # ============================================================
@@ -1091,6 +1227,7 @@ nrow(fall_btrw_same_year)
 sum(is.na(fall_btrw_same_year$spring_temp_same_year))
 
 range(fall_btrw_same_year$Year)
+
 
 
 # ============================================================
