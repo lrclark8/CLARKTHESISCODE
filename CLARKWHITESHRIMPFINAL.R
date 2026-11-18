@@ -34,7 +34,8 @@ library(car)
 # ============================================================
 
 MDNR1 <- read_excel(
-  "MDNR_CBFI Data (1990-2012) DATA ORIGINAL 1.xlsx"
+  "MDNR_CBFI Data (1990-2012) DATA ORIGINAL 1.xlsx",
+  guess_max = Inf
 )
 
 MDNR2 <- read.csv(
@@ -1032,6 +1033,352 @@ fall_mapped %>%
 
 
 
+##CHECKING COORDINATE NUMBER MISMATCH##
+# Count unique site and gear combinations
+fall_1990_2018 %>%
+  distinct(Gear, Site) %>%
+  count(Gear, name = "unique_sites")
+
+# Identify sites that do not match the reference table
+fall_1990_2018 %>%
+  distinct(Gear, Site) %>%
+  anti_join(
+    site_coordinates,
+    by = c("Gear", "Site")
+  ) %>%
+  print(n = Inf) 
+
+
+extra_sites <- fall_1990_2018 %>%
+  anti_join(
+    site_coordinates,
+    by = c("Gear", "Site")
+  )
+
+extra_site_summary <- extra_sites %>%
+  group_by(Gear, Site) %>%
+  summarise(
+    first_year = min(Year),
+    last_year = max(Year),
+    n_events = n(),
+    positive_events = sum(presence == 1, na.rm = TRUE),
+    events_with_coordinates = sum(
+      !is.na(latitude) & !is.na(longitude)
+    ),
+    .groups = "drop"
+  ) %>%
+  arrange(Gear, Site)
+
+print(extra_site_summary, n = Inf) 
+
+site_coverage <- fall_1990_2018 %>%
+  mutate(
+    Period = if_else(
+      Year < 2008,
+      "1990–2007",
+      "2008–2018"
+    )
+  ) %>%
+  left_join(
+    site_coordinates %>%
+      mutate(reference_site = TRUE) %>%
+      select(Gear, Site, reference_site),
+    by = c("Gear", "Site")
+  ) %>%
+  mutate(
+    site_group = if_else(
+      is.na(reference_site),
+      "Additional historical site",
+      "Designated reference site"
+    )
+  ) %>%
+  group_by(Period, Gear, site_group) %>%
+  summarise(
+    n_events = n(),
+    positive_events = sum(presence == 1, na.rm = TRUE),
+    total_shrimp = sum(abundance, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+print(site_coverage, n = Inf) 
+
+# ============================================================
+# 3M. Creating 39 detections dataset
+# ============================================================ 
+
+fall_mapped %>%
+  filter(presence == 1) %>%
+  mutate(
+    Period = if_else(
+      Year < 2008,
+      "1990–2007",
+      "2008–2018"
+    )
+  ) %>%
+  count(Period, Gear, coordinate_source) %>%
+  print(n = Inf)
+
+site_detection_map <- fall_1990_2018 %>%
+  semi_join(
+    site_coordinates,
+    by = c("Gear", "Site")
+  ) %>%
+  mutate(
+    Period = if_else(
+      Year < 2008,
+      "1990–2007",
+      "2008–2018"
+    )
+  ) %>%
+  group_by(Gear, Site, Period) %>%
+  summarise(
+    detected = any(presence == 1, na.rm = TRUE),
+    total_shrimp = sum(abundance, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  left_join(
+    site_coordinates,
+    by = c("Gear", "Site"),
+    relationship = "many-to-one"
+  )
+
+# Check number of sites represented in each period
+site_detection_map %>%
+  group_by(Period) %>%
+  summarise(
+    unique_sites = n_distinct(paste(Gear, Site)),
+    sites_with_detections = sum(detected),
+    .groups = "drop"
+  )
+
+
+# ============================================================
+# 3N. Revised maps
+# ============================================================
+
+# Restrict mapping to the 39 designated sampling sites
+# and summarize detections by site and period
+
+period_levels <- c(
+  "1990–2007",
+  "2008–2012",
+  "2013–2018"
+)
+
+spatial_data <- fall_1990_2018 %>%
+  filter(
+    Gear %in% c("BTRW", "BCHS100")
+  ) %>%
+  semi_join(
+    site_coordinates,
+    by = c("Gear", "Site")
+  ) %>%
+  mutate(
+    Period = case_when(
+      Year < 2008 ~ "1990–2007",
+      Year >= 2008 & Year <= 2012 ~ "2008–2012",
+      Year >= 2013 & Year <= 2018 ~ "2013–2018"
+    ),
+    Period = factor(
+      Period,
+      levels = period_levels
+    )
+  ) %>%
+  group_by(Period, Gear, Site) %>%
+  summarise(
+    sampling_events = n(),
+    positive_events = sum(
+      presence == 1,
+      na.rm = TRUE
+    ),
+    total_shrimp = sum(
+      abundance,
+      na.rm = TRUE
+    ),
+    detected = any(
+      presence == 1,
+      na.rm = TRUE
+    ),
+    .groups = "drop"
+  ) %>%
+  left_join(
+    site_coordinates,
+    by = c("Gear", "Site"),
+    relationship = "many-to-one"
+  ) %>%
+  mutate(
+    Gear = factor(
+      Gear,
+      levels = c("BTRW", "BCHS100")
+    )
+  )
+
+# Convert to spatial features
+spatial_sf <- st_as_sf(
+  spatial_data,
+  coords = c("longitude", "latitude"),
+  crs = 4326,
+  remove = FALSE
+)
+
+# Verify sites and detections by period and gear
+spatial_data %>%
+  group_by(Period, Gear) %>%
+  summarise(
+    unique_sites = n_distinct(Site),
+    sampling_events = sum(sampling_events),
+    positive_events = sum(positive_events),
+    sites_with_detections = sum(detected),
+    .groups = "drop"
+  ) %>%
+  print(n = Inf)
+
+
+
+# BASEMAP
+
+
+map_limits <- c(
+  xmin = -75.45,
+  xmax = -75.00,
+  ymin = 37.95,
+  ymax = 38.55
+)
+
+test_basemap <- ggplot() +
+  annotation_map_tile(
+    type = "osm",
+    zoomin = 0
+  ) +
+  geom_sf(
+    data = spatial_sf,
+    alpha = 0
+  ) +
+  coord_sf(
+    crs = st_crs(4326),
+    default_crs = st_crs(4326),
+    xlim = c(map_limits["xmin"], map_limits["xmax"]),
+    ylim = c(map_limits["ymin"], map_limits["ymax"]),
+    expand = FALSE
+  ) +
+  theme_bw()
+
+test_basemap
+
+
+# REVISED MAP of SAMPLING LOCATIONS AND SHRIMP DETECTIONS
+
+fig_spatial_1990_2018 <- ggplot() +
+  
+  # OpenStreetMap basemap
+  annotation_map_tile(
+    type = "osm",
+    zoomin = 0
+  ) +
+  
+  # Designated sampling locations
+  geom_sf(
+    data = spatial_sf,
+    color = "gray45",
+    size = 1.2,
+    alpha = 0.5
+  ) +
+  
+  # White shrimp detections colored by gear
+  geom_sf(
+    data = spatial_sf %>%
+      filter(detected),
+    aes(color = Gear),
+    size = 2,
+    alpha = 0.9
+  ) +
+  
+  # Gear-specific colors
+  scale_color_manual(
+    name = "Sampling gear",
+    values = c(
+      "BTRW" = "red3",
+      "BCHS100" = "deepskyblue3"
+    ),
+    breaks = c("BTRW", "BCHS100"),
+    labels = c(
+      "Bottom trawl (BTRW)",
+      "Beach seine (BCHS100)"
+    )
+  ) +
+  
+  # Separate maps by time period
+  facet_wrap(
+    ~ Period,
+    ncol = 3
+  ) +
+  
+  # Map boundaries
+  coord_sf(
+    crs = st_crs(4326),
+    default_crs = st_crs(4326),
+    xlim = c(-75.45, -75.00),
+    ylim = c(37.95, 38.55),
+    expand = FALSE
+  ) +
+  
+  # Scale bar
+  annotation_scale(
+    location = "bl",
+    width_hint = 0.25
+  ) +
+  
+  # North arrow
+  annotation_north_arrow(
+    location = "tr",
+    pad_x = unit(0.15, "in"),
+    pad_y = unit(0.15, "in"),
+    height = unit(0.40, "in"),
+    width = unit(0.65, "in"),
+    style = north_arrow_fancy_orienteering
+  ) +
+  
+  # Labels
+  labs(
+    x = "Longitude",
+    y = "Latitude",
+    caption = paste(
+      "Gray = designated sampling sites;",
+      "Red = BTRW detections;",
+      "Blue = BCHS100 detections"
+    )
+  ) +
+  
+  theme_minimal(base_size = 12) +
+  
+  theme(
+    panel.spacing = unit(0.6, "in"),
+    
+    axis.text.x = element_text(
+      size = 9,
+      angle = 45,
+      hjust = 1
+    ),
+    
+    strip.text = element_text(
+      face = "bold",
+      size = 12
+    ),
+    
+    plot.caption = element_text(
+      size = 10,
+      hjust = 0.5,
+      margin = margin(t = 12)
+    )
+  )
+
+# Display map
+fig_spatial_1990_2018
+
+
+
+
+
 # ============================================================
 # SEASONAL WHITE SHRIMP CATCH: APRIL–OCTOBER
 # ============================================================
@@ -1386,6 +1733,108 @@ occ_btrw %>% count(Year)
 occ_btrw_NAO %>% count(Year)
 
 
+
+# ------------------------------------------------------------
+# DO INVESTGATION
+# ------------------------------------------------------------
+
+DO_coverage <- MDNR1 %>%
+  group_by(Year) %>%
+  summarise(
+    total_rows = n(),
+    surface_percent = round(
+      mean(!is.na(`Dissolved Oxygen Surface`)) * 100, 1
+    ),
+    bottom_percent = round(
+      mean(!is.na(`Dissolved Oxygen Bottom`)) * 100, 1
+    ),
+    .groups = "drop"
+  )
+
+print(DO_coverage, n = Inf)
+
+MDNR1 %>%
+  filter(
+    Month %in% c(9, 10),
+    `Gear Code` == "BTRW"  ) %>%
+  group_by(Year) %>%
+  summarise(
+    total_rows = n(),
+    surface_DO_percent = round(
+      mean(!is.na(`Dissolved Oxygen Surface`)) * 100, 1
+    ),
+    bottom_DO_percent = round(
+      mean(!is.na(`Dissolved Oxygen Bottom`)) * 100, 1
+    ),
+    .groups = "drop"
+  ) %>%
+  print(n = Inf) 
+
+event_data %>%
+  filter(
+    Gear_f == "BTRW",
+    Month_f %in% c("September", "October")
+  ) %>%
+  group_by(Year) %>%
+  summarise(
+    total_events = n(),
+    surface_DO_events = sum(!is.na(do_surface)),
+    bottom_DO_events = sum(!is.na(do_bottom)),
+    .groups = "drop"
+  ) %>%
+  print(n = Inf)
+
+
+# Combine the event-level datasets already created in your code
+DO_events <- bind_rows(
+  fall_1990_2012,
+  fall_2013_2016,
+  fall_2017_2018
+) %>%
+  filter(
+    Gear == "BTRW",
+    Month %in% c(9, 10)
+  )
+
+# Calculate DO coverage by year
+DO_coverage_events <- DO_events %>%
+  group_by(Year) %>%
+  summarise(
+    total_events = n(),
+    
+    surface_DO_events =
+      sum(!is.na(dissolved_oxygen_surface)),
+    
+    bottom_DO_events =
+      sum(!is.na(dissolved_oxygen_bottom)),
+    
+    surface_DO_percent = round(
+      mean(!is.na(dissolved_oxygen_surface)) * 100, 1
+    ),
+    
+    bottom_DO_percent = round(
+      mean(!is.na(dissolved_oxygen_bottom)) * 100, 1
+    ),
+    
+    .groups = "drop"
+  )
+
+print(DO_coverage_events, n = Inf) 
+
+DO_events %>%
+  filter(presence == 1) %>%
+  summarise(
+    positive_events = n(),
+    surface_DO_available =
+      sum(!is.na(dissolved_oxygen_surface)),
+    bottom_DO_available =
+      sum(!is.na(dissolved_oxygen_bottom)),
+    surface_DO_missing =
+      sum(is.na(dissolved_oxygen_surface)),
+    bottom_DO_missing =
+      sum(is.na(dissolved_oxygen_bottom))
+  )
+ 
 
 # ------------------------------------------------------------
 # Check environmental dataset
@@ -4905,7 +5354,7 @@ print(length_influence_table)
 
 
 # ============================================================
-# 19. MAPS
+# 19. MAP WITH MORE THAN 39 SITES
 # ============================================================
 
 # Include BTRW and BCHS100
@@ -5017,8 +5466,8 @@ fig_spatial_1990_2018 <- ggplot() +
   scale_color_manual(
     name = "Sampling gear",
     values = c(
-      "BTRW" = "red3",
-      "BCHS100" = "deepskyblue3"
+      "BTRW" = "brown",
+      "BCHS100" = "darkblue"
     ),
     breaks = c("BTRW", "BCHS100"),
     labels = c(
@@ -5064,8 +5513,8 @@ fig_spatial_1990_2018 <- ggplot() +
     y = "Latitude",
     caption = paste(
       "Gray = sampling locations;",
-      "Red = BTRW detections;",
-      "Blue = BCHS100 detections"
+      "Brown = BTRW detections;",
+      "Dark blue = BCHS100 detections"
     )
   ) +
   
