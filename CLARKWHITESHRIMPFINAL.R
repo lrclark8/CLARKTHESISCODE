@@ -5355,6 +5355,7 @@ print(length_influence_table)
 
 # ============================================================
 # 19. MAP WITH MORE THAN 39 SITES
+#shows individual sampling-event locations rather than unique designated sites.
 # ============================================================
 
 # Include BTRW and BCHS100
