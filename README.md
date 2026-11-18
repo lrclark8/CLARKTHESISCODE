@@ -1,4 +1,4 @@
-# CLARKTHESISCODE
+# Lydia Clark's Code for White Shrimp Analysis
 
 This code supports the spatial and temporal analyses of white shrimp in Lydia Clark's master's thesis. Data were provided by the Maryland Department of Natural Resources (MDNR) Coastal Bays Fisheries Investigation (CBGI) survey. The survey utilizes trawl and beach seine gear to characterize fish and their abundance in the Coastal Bays region. White shrimp were not targeted in these surveys. More information can be found here: https://dnr.maryland.gov/fisheries/pages/coastal/investigations.aspx. The data used for this analysis spans from 1990 to 2015 and focuses on white shrimp. 
 
