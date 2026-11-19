@@ -1153,7 +1153,7 @@ site_detection_map %>%
 
 
 # ============================================================
-# 3N. Revised maps
+# 3N. Revised Map
 # ============================================================
 
 # Restrict mapping to the 39 designated sampling sites
@@ -1280,8 +1280,8 @@ fig_spatial_1990_2018 <- ggplot() +
   geom_sf(
     data = spatial_sf,
     color = "gray45",
-    size = 1.2,
-    alpha = 0.5
+    size = 2,
+    alpha = 0.7
   ) +
   
   # White shrimp detections colored by gear
@@ -1289,8 +1289,8 @@ fig_spatial_1990_2018 <- ggplot() +
     data = spatial_sf %>%
       filter(detected),
     aes(color = Gear),
-    size = 2,
-    alpha = 0.9
+    size = 2.5,
+    alpha = 1
   ) +
   
   # Gear-specific colors
