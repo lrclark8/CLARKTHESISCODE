@@ -3888,6 +3888,18 @@ ggplot(
 
 
 # ------------------------------------------------------------
+# Looking at median length distribution by event
+# Shows normal distribution
+# ------------------------------------------------------------
+
+hist(length_by_event$median_length,
+     main = "Distribution of Median Shrimp Length",
+     xlab = "Median Length (mm)",
+     col = "lightblue",
+     breaks = 15)
+
+
+# ------------------------------------------------------------
 # 17D. Join environmental variables
 # ------------------------------------------------------------
 
@@ -5855,6 +5867,9 @@ ggplot(
       hjust = 1
     ),
     legend.position = "top"
-  )
+  ) 
+
+
+
 
 
