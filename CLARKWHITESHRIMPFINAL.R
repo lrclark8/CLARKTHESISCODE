@@ -1211,6 +1211,19 @@ spatial_data <- fall_1990_2018 %>%
       Gear,
       levels = c("BTRW", "BCHS100")
     )
+  ) 
+
+
+site_coordinates <- site_coordinates %>%
+  filter(!(Site == "B013" & Gear == "BCHS100")) %>%
+  bind_rows(
+    tibble(
+      Site = "B013",
+      Gear = "BCHS100",
+      latitude = 38.16028,
+      longitude = -75.27389,
+      n_coordinates = 1L
+    )
   )
 
 # Convert to spatial features
@@ -1377,7 +1390,22 @@ fig_spatial_1990_2018
 
 
 
-
+spatial_data %>%
+  filter(
+    Site == "B013",
+    Period == "1990–2007"
+  ) %>%
+  select(
+    Period,
+    Gear,
+    Site,
+    sampling_events,
+    positive_events,
+    total_shrimp,
+    detected,
+    latitude,
+    longitude
+  )
 
 # ============================================================
 # SEASONAL WHITE SHRIMP CATCH: APRIL–OCTOBER
@@ -5871,5 +5899,4 @@ ggplot(
 
 
 
-
-
+f
