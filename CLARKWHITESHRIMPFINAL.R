@@ -1541,6 +1541,77 @@ fig_seasonal_occurrence
 
 
 
+# ============================================================
+# CALCULATING AVG. AREA COVERED BY YEAR AND GEAR
+# ============================================================
+
+annual_area <- fall_1990_2018 %>%
+  filter(
+    Gear %in% c("BTRW", "BCHS100"),
+    Month %in% c(9, 10)
+  ) %>%
+  group_by(Year, Gear) %>%
+  summarise(
+    sampling_events = n(),
+    events_with_area = sum(
+      !is.na(area_covered) & area_covered > 0
+    ),
+    mean_area_m2 = if (
+      any(!is.na(area_covered) & area_covered > 0)
+    ) {
+      mean(area_covered[!is.na(area_covered) &
+                          area_covered > 0])
+    } else NA_real_,
+    .groups = "drop"
+  )
+
+print(annual_area, n = Inf) 
+
+
+
+period_area <- annual_area %>%
+  mutate(
+    Period = if_else(
+      Year < 2008,
+      "1990-2007",
+      "2008-2018"
+    )
+  ) %>%
+  group_by(Period, Gear) %>%
+  summarise(
+    mean_annual_area_m2 = mean(
+      mean_area_m2,
+      na.rm = TRUE
+    ),
+    years_with_area = sum(!is.na(mean_area_m2)),
+    .groups = "drop"
+  )
+
+print(period_area) 
+
+fall_1990_2018 %>%
+  filter(
+    Gear %in% c("BTRW", "BCHS100"),
+    Month %in% c(9, 10)
+  ) %>%
+  mutate(
+    Period = if_else(
+      Year < 2008,
+      "1990-2007",
+      "2008-2018"
+    )
+  ) %>%
+  group_by(Period, Gear) %>%
+  summarise(
+    total_events = n(),
+    events_with_area = sum(
+      !is.na(area_covered) & area_covered > 0
+    ),
+    percent_available = round(
+      100 * events_with_area / total_events, 1
+    ),
+    .groups = "drop"
+  )
 
 # ============================================================
 # 4. AUDIT FINAL 1990–2018 DATASET
