@@ -4945,12 +4945,2463 @@ print(fig_length_depth)
 
 
 
+# ------------------------------------------------------------
+# 18A. Prepare individual-level length modeling dataset
+# ------------------------------------------------------------
+
+length_individual_btrw <- length_1990_2018 %>%
+  filter(
+    Gear == "BTRW",
+    Month %in% c(9, 10),
+    !is.na(length_mm)
+  ) %>%
+  inner_join(
+    length_btrw_env %>%
+      select(
+        sample_id,
+        year_decade,
+        Month_f,
+        Site_f,
+        temp_surface,
+        salinity_surface,
+        mean_depth,
+        temp_z,
+        salinity_z,
+        depth_z
+      ),
+    by = "sample_id",
+    relationship = "many-to-one"
+  ) %>%
+  mutate(
+    sample_id = factor(sample_id),
+    Site_f = factor(Site_f)
+  ) 
+
+#Graph of length distribution (normal distribution)
+ggplot(length_individual_btrw, aes(x = length_mm)) +
+  geom_histogram(
+    binwidth = 10,
+    fill = "steelblue",
+    color = "black"
+  ) +
+  labs(
+    x = "Individual shrimp length (mm)",
+    y = "Frequency"
+  ) +
+  theme_classic() 
+
+
+#Graph of individual length by year
+ggplot(
+  length_individual_btrw,
+  aes(x = factor(Year), y = length_mm)
+) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(
+    width = 0.15,
+    alpha = 0.4,
+    size = 1.5
+  ) +
+  labs(
+    x = "Year",
+    y = "Individual shrimp length (mm)"
+  ) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1
+    )
+  )
+
+#Individual length by month
+ggplot(
+  length_individual_btrw,
+  aes(x = Month_f, y = length_mm, fill = Month_f)
+) +
+  geom_boxplot() +
+  labs(
+    x = "Month",
+    y = "Individual shrimp length (mm)"
+  ) +
+  theme_classic() +
+  theme(legend.position = "none")
+
+#Model with sampling event random intercept
+length_ind_event <- lmer(
+  length_mm ~
+    year_decade +
+    Month_f +
+    temp_z +
+    salinity_z +
+    depth_z +
+    (1 | sample_id),
+  data = length_individual_btrw,
+  REML = FALSE
+)
+
+
+#Model with sampling event and site random intercepts
+length_ind_site_event <- lmer(
+  length_mm ~
+    year_decade +
+    Month_f +
+    temp_z +
+    salinity_z +
+    depth_z +
+    (1 | Site_f) +
+    (1 | sample_id),
+  data = length_individual_btrw,
+  REML = FALSE
+) 
+
+#Comparing models
+summary(length_ind_event)
+summary(length_ind_site_event)
+
+isSingular(length_ind_event)
+isSingular(length_ind_site_event)
+
+VarCorr(length_ind_event)
+VarCorr(length_ind_site_event)
+
+AIC(length_ind_event, length_ind_site_event)
+
+MuMIn::AICc(length_ind_event)
+MuMIn::AICc(length_ind_site_event)
+
+#Want to use sampling event as a random intercept
+
+# ------------------------------------------------------------
+# 18B. Candidate individual-level length mixed-effects models
+# ------------------------------------------------------------
+
+# Base model
+length_ind_base <- lmer(
+  length_mm ~ year_decade + Month_f +
+    (1 | sample_id),
+  data = length_individual_btrw,
+  REML = FALSE
+)
+
+# Temperature
+length_ind_temp <- update(
+  length_ind_base,
+  . ~ . + temp_z
+)
+
+# Salinity
+length_ind_salinity <- update(
+  length_ind_base,
+  . ~ . + salinity_z
+)
+
+# Depth
+length_ind_depth <- update(
+  length_ind_base,
+  . ~ . + depth_z
+)
+
+# Temperature + salinity
+length_ind_temp_salinity <- update(
+  length_ind_base,
+  . ~ . + temp_z + salinity_z
+)
+
+# Temperature + depth
+length_ind_temp_depth <- update(
+  length_ind_base,
+  . ~ . + temp_z + depth_z
+)
+
+# Salinity + depth
+length_ind_salinity_depth <- update(
+  length_ind_base,
+  . ~ . + salinity_z + depth_z
+)
+
+# Full environmental model
+length_ind_full <- update(
+  length_ind_base,
+  . ~ . + temp_z + salinity_z + depth_z
+)
+
+
+# ------------------------------------------------------------
+# 18C. Individual length model selection
+# ------------------------------------------------------------
+
+# Verify complete cases for all candidate model variables
+stopifnot(
+  all(
+    complete.cases(
+      length_individual_btrw[, c(
+        "length_mm",
+        "year_decade",
+        "Month_f",
+        "temp_z",
+        "salinity_z",
+        "depth_z",
+        "sample_id",
+        "Site_f",
+        "mean_depth"
+      )]
+    )
+  )
+)
+
+# Candidate model formulas
+# Year and month are retained in all models
+
+length_formulas <- list(
+  Base = length_mm ~ year_decade + Month_f +
+    (1 | sample_id),
+  
+  Temperature = length_mm ~ year_decade + Month_f +
+    temp_z + (1 | sample_id),
+  
+  Salinity = length_mm ~ year_decade + Month_f +
+    salinity_z + (1 | sample_id),
+  
+  Depth = length_mm ~ year_decade + Month_f +
+    depth_z + (1 | sample_id),
+  
+  Temperature_Salinity = length_mm ~
+    year_decade + Month_f +
+    temp_z + salinity_z + (1 | sample_id),
+  
+  Temperature_Depth = length_mm ~
+    year_decade + Month_f +
+    temp_z + depth_z + (1 | sample_id),
+  
+  Salinity_Depth = length_mm ~
+    year_decade + Month_f +
+    salinity_z + depth_z + (1 | sample_id),
+  
+  Full = length_mm ~ year_decade + Month_f +
+    temp_z + salinity_z + depth_z +
+    (1 | sample_id)
+)
+
+# Function to check glmmTMB model convergence
+
+length_fit_ok <- function(m) {
+  !is.null(m) &&
+    isTRUE(m$fit$convergence == 0) &&
+    isTRUE(m$sdr$pdHess) &&
+    is.finite(AIC(m))
+}
+
+# Function to create AICc model selection tables
+
+length_aicc_table <- function(models) {
+  
+  ok <- vapply(
+    models,
+    length_fit_ok,
+    logical(1)
+  )
+  
+  if (any(!ok)) {
+    warning(
+      "Excluded unsuccessful fits: ",
+      paste(names(models)[!ok], collapse = ", ")
+    )
+  }
+  
+  models <- models[ok]
+  
+  stopifnot(
+    length(models) > 0,
+    length(unique(sapply(models, nobs))) == 1
+  )
+  
+  tibble(
+    Model = names(models),
+    
+    N = sapply(models, nobs),
+    
+    K = sapply(
+      models,
+      function(m) attr(logLik(m), "df")
+    ),
+    
+    AIC = sapply(models, AIC),
+    
+    AICc = sapply(models, MuMIn::AICc)
+  ) %>%
+    arrange(AICc) %>%
+    mutate(
+      Delta_AICc = AICc - min(AICc),
+      
+      Weight = exp(-0.5 * Delta_AICc) /
+        sum(exp(-0.5 * Delta_AICc))
+    )
+}
+
+# Extract starting parameters from fitted Student's t models
+
+length_start <- function(m) {
+  
+  list(
+    beta = unname(fixef(m)$cond),
+    
+    betadisp = unname(fixef(m)$disp),
+    
+    theta = unname(
+      m$fit$par[names(m$fit$par) == "theta"]
+    ),
+    
+    psi = log(
+      as.numeric(glmmTMB::family_params(m))
+    )
+  )
+}
+
+# Optimization settings
+
+length_control <- glmmTMBControl(
+  optCtrl = list(
+    iter.max = 1000,
+    eval.max = 1000
+  )
+)
+
+# ------------------------------------------------------------
+# Preliminary Gaussian mixed-effects models
+# ------------------------------------------------------------
+
+# Fit candidate models using maximum likelihood
+
+length_ind_models <- lapply(
+  length_formulas,
+  function(f) {
+    lme4::lmer(
+      f,
+      data = length_individual_btrw,
+      REML = FALSE
+    )
+  }
+)
+
+# Model selection table
+
+length_ind_model_table <- data.frame(
+  Model = names(length_ind_models),
+  
+  N = sapply(length_ind_models, nobs),
+  
+  K = sapply(
+    length_ind_models,
+    function(x) attr(logLik(x), "df")
+  ),
+  
+  AIC = sapply(length_ind_models, AIC),
+  
+  AICc = sapply(length_ind_models, MuMIn::AICc),
+  
+  Singular = sapply(
+    length_ind_models,
+    lme4::isSingular
+  )
+) %>%
+  arrange(AICc) %>%
+  mutate(
+    Delta_AICc = AICc - min(AICc),
+    
+    Weight = exp(-0.5 * Delta_AICc) /
+      sum(exp(-0.5 * Delta_AICc))
+  )
+
+print(length_ind_model_table)
+
+# Identify best-supported Gaussian model
+
+length_ind_best_name <-
+  length_ind_model_table$Model[1]
+
+length_ind_best <-
+  length_ind_models[[length_ind_best_name]]
+
+length_ind_best_name
+
+summary(length_ind_best)
+
+VarCorr(length_ind_best)
+
+isSingular(length_ind_best)
+
+# Refit selected Gaussian model using REML
+
+length_ind_final <- lmerTest::lmer(
+  length_mm ~ year_decade + Month_f +
+    temp_z + depth_z + (1 | sample_id),
+  
+  data = length_individual_btrw,
+  REML = TRUE
+)
+
+summary(length_ind_final)
+
+# Gaussian coefficient table
+
+length_ind_coefficient_table <-
+  as.data.frame(coef(summary(length_ind_final))) %>%
+  rownames_to_column("Predictor") %>%
+  rename(
+    Beta = Estimate,
+    SE = `Std. Error`,
+    DF = df,
+    t_value = `t value`,
+    p_value = `Pr(>|t|)`
+  ) %>%
+  mutate(
+    CI_lower = Beta - qt(0.975, DF) * SE,
+    
+    CI_upper = Beta + qt(0.975, DF) * SE,
+    
+    Predictor = dplyr::recode(
+      Predictor,
+      "(Intercept)" = "Intercept",
+      "year_decade" = "Year (per decade)",
+      "Month_fOctober" = "October",
+      "temp_z" = "Surface temperature (1 SD)",
+      "depth_z" = "Depth (1 SD)"
+    )
+  )
+
+print(length_ind_coefficient_table)
+
+# Formatted coefficient table
+
+length_ind_coefficient_table_formatted <-
+  length_ind_coefficient_table %>%
+  mutate(
+    across(
+      c(Beta, SE, DF, t_value, CI_lower, CI_upper),
+      ~ round(.x, 3)
+    ),
+    
+    p_value = ifelse(
+      p_value < 0.001,
+      "<0.001",
+      sprintf("%.3f", p_value)
+    )
+  )
+
+print(length_ind_coefficient_table_formatted)
+
+# Intraclass correlation coefficient
+
+performance::icc(length_ind_final)
+
+
+# ------------------------------------------------------------
+# Gaussian model diagnostics
+# ------------------------------------------------------------
+
+# Residuals versus fitted values
+
+plot(length_ind_final)
+
+# Residual normality
+
+qqnorm(residuals(length_ind_final))
+qqline(residuals(length_ind_final))
+
+# Sampling-event random effects
+
+event_effects <-
+  ranef(length_ind_final)$sample_id[, 1]
+
+qqnorm(event_effects)
+qqline(event_effects)
+
+# DHARMa diagnostics
+
+sim_length_ind <- DHARMa::simulateResiduals(
+  fittedModel = length_ind_final,
+  n = 1000,
+  seed = 123
+)
+
+plot(sim_length_ind)
+
+testUniformity(sim_length_ind)
+testDispersion(sim_length_ind)
+testOutliers(sim_length_ind)
+
+# ------------------------------------------------------------
+# Compare sampling-event and site random effects
+# ------------------------------------------------------------
+
+length_ind_event_selected <- update(
+  length_ind_final,
+  REML = FALSE
+)
+
+length_ind_site_selected <- update(
+  length_ind_event_selected,
+  . ~ . + (1 | Site_f)
+)
+
+AIC(
+  length_ind_event_selected,
+  length_ind_site_selected
+)
+
+MuMIn::AICc(length_ind_event_selected)
+MuMIn::AICc(length_ind_site_selected)
+
+summary(length_ind_site_selected)
+
+VarCorr(length_ind_site_selected)
+
+isSingular(length_ind_site_selected)
+
+# Refit site model using REML
+
+length_ind_site_final <- update(
+  length_ind_site_selected,
+  REML = TRUE
+)
+
+summary(length_ind_site_final)
+
+VarCorr(length_ind_site_final) 
+
+# ------------------------------------------------------------
+# Identify extreme Gaussian model residuals
+# ------------------------------------------------------------
+
+length_ind_residual_data <-
+  length_individual_btrw %>%
+  mutate(
+    fitted_length = fitted(length_ind_final),
+    
+    residual = residuals(length_ind_final),
+    
+    standardized_residual =
+      residuals(length_ind_final) /
+      sigma(length_ind_final),
+    
+    DHARMa_residual =
+      sim_length_ind$scaledResiduals
+  )
+
+length_ind_outliers <-
+  length_ind_residual_data %>%
+  filter(
+    DHARMa_residual == 0 |
+      DHARMa_residual == 1
+  ) %>%
+  select(
+    sample_id,
+    Year,
+    Month,
+    Site,
+    length_mm,
+    temp_surface,
+    salinity_surface,
+    mean_depth,
+    fitted_length,
+    residual,
+    standardized_residual,
+    DHARMa_residual
+  )
+
+print(length_ind_outliers)
+
+# Summarize events containing extreme residuals
+
+length_ind_outlier_events <-
+  length_ind_residual_data %>%
+  filter(
+    sample_id %in% length_ind_outliers$sample_id
+  ) %>%
+  group_by(sample_id, Year, Month, Site) %>%
+  summarise(
+    n_measured = n(),
+    min_length = min(length_mm),
+    mean_length = mean(length_mm),
+    median_length = median(length_mm),
+    max_length = max(length_mm),
+    sd_length = sd(length_mm),
+    .groups = "drop"
+  )
+
+print(
+  tibble::as_tibble(length_ind_outlier_events),
+  width = Inf
+)
+
+# Length distributions within influential events
+
+fig_length_outlier_events <- ggplot(
+  length_ind_residual_data %>%
+    filter(
+      sample_id %in% length_ind_outliers$sample_id
+    ) %>%
+    mutate(
+      Event = paste(Year, Month, Site, sep = " - ")
+    ),
+  
+  aes(x = length_mm)
+) +
+  geom_histogram(
+    binwidth = 5,
+    boundary = 0,
+    fill = "steelblue",
+    color = "black"
+  ) +
+  facet_wrap(
+    ~ Event,
+    scales = "free_y",
+    ncol = 2
+  ) +
+  labs(
+    x = "Individual shrimp length (mm)",
+    y = "Frequency"
+  ) +
+  theme_bw()
+
+fig_length_outlier_events
+
+# Overall length distributions by month
+
+fig_ind_length_distribution <- ggplot(
+  length_individual_btrw,
+  aes(x = length_mm)
+) +
+  geom_histogram(
+    binwidth = 5,
+    boundary = 0,
+    fill = "steelblue",
+    color = "black"
+  ) +
+  facet_wrap(
+    ~ Month_f,
+    ncol = 1
+  ) +
+  labs(
+    x = "Individual shrimp length (mm)",
+    y = "Frequency"
+  ) +
+  theme_bw()
+
+fig_ind_length_distribution 
+
+# ------------------------------------------------------------
+# 18D. Compare alternative residual distributions
+# ------------------------------------------------------------
+
+# Gaussian mixed-effects model
+
+length_ind_gaussian <- glmmTMB(
+  length_mm ~ year_decade + Month_f +
+    temp_z + depth_z + (1 | sample_id),
+  
+  data = length_individual_btrw,
+  
+  family = gaussian(link = "identity"),
+  
+  REML = FALSE
+)
+
+# Student's t mixed-effects model
+
+length_ind_student <- glmmTMB(
+  length_mm ~ year_decade + Month_f +
+    temp_z + depth_z + (1 | sample_id),
+  
+  data = length_individual_btrw,
+  
+  family = t_family(link = "identity"),
+  
+  REML = FALSE
+)
+
+summary(length_ind_gaussian)
+summary(length_ind_student)
+
+# Compare model performance
+
+length_initial_distribution_models <- list(
+  Gaussian = length_ind_gaussian,
+  Student_t = length_ind_student
+)
+
+length_initial_distribution_table <-
+  length_aicc_table(
+    length_initial_distribution_models
+  )
+
+print(length_initial_distribution_table)
+
+# Check convergence and Hessian
+
+length_fit_ok(length_ind_gaussian)
+length_fit_ok(length_ind_student)
+
+# Estimated Student's t degrees of freedom
+
+glmmTMB::family_params(length_ind_student)
+
+# Student's t residual diagnostics
+
+sim_length_ind_student <- DHARMa::simulateResiduals(
+  fittedModel = length_ind_student,
+  n = 1000,
+  seed = 123
+)
+
+plot(sim_length_ind_student)
+
+testUniformity(sim_length_ind_student)
+testDispersion(sim_length_ind_student)
+testOutliers(sim_length_ind_student) 
+
+
+# ------------------------------------------------------------
+# Student's t candidate length models
+# ------------------------------------------------------------
+
+length_t_start_par <- length_ind_student$fit$par
+
+original_depth_beta <- fixef(length_t_final)$cond["depth_z"]
+
+length_influence_data <- length_individual_btrw
+
+length_leave_one_out <- function(group) {
+  
+  ids <- unique(
+    as.character(length_influence_data[[group]])
+  )
+  
+  bind_rows(
+    lapply(ids, function(id) {
+      
+      removed <- as.character(
+        length_influence_data[[group]]
+      ) == id
+      
+      sensitivity_data <- droplevels(
+        length_influence_data[!removed, ]
+      )
+      
+      sensitivity_model <- tryCatch(
+        
+        glmmTMB(
+          formula(length_t_final),
+          data = sensitivity_data,
+          family = t_family(link = "identity"),
+          REML = FALSE,
+          
+          start = list(
+            beta = unname(fixef(length_t_final)$cond),
+            
+            betadisp = unname(fixef(length_t_final)$disp),
+            
+            theta = unname(
+              length_t_final$fit$par[
+                names(length_t_final$fit$par) == "theta"
+              ]
+            ),
+            
+            psi = log(as.numeric(
+              glmmTMB::family_params(length_t_final)
+            ))
+          ),
+          
+          control = glmmTMBControl(
+            optCtrl = list(
+              iter.max = 1000,
+              eval.max = 1000
+            )
+          )
+        ),
+        
+        error = function(e) {
+          warning(conditionMessage(e))
+          NULL
+        }
+      )
+      
+      converged <- length_fit_ok(sensitivity_model)
+      
+      beta <- se <- p <- NA_real_
+      
+      if (converged) {
+        
+        coef_table <- summary(
+          sensitivity_model
+        )$coefficients$cond
+        
+        beta <- coef_table["depth_z", "Estimate"]
+        se <- coef_table["depth_z", "Std. Error"]
+        p <- coef_table["depth_z", "Pr(>|z|)"]
+      }
+      
+      tibble(
+        Removed = id,
+        
+        N_removed = sum(removed),
+        
+        Events_removed = n_distinct(
+          length_influence_data$sample_id[removed]
+        ),
+        
+        Beta_depth = beta,
+        SE_depth = se,
+        p_value = p,
+        Converged = converged
+      )
+    })
+  ) %>%
+    mutate(
+      Beta_change = Beta_depth - original_depth_beta,
+      
+      Percent_change =
+        100 * Beta_change / original_depth_beta,
+      
+      CI_lower = Beta_depth - 1.96 * SE_depth,
+      
+      CI_upper = Beta_depth + 1.96 * SE_depth
+    ) %>%
+    arrange(desc(abs(Percent_change)))
+}
+
+length_t_site_influence_table <-
+  length_leave_one_out("Site_f") %>%
+  rename(
+    Removed_site = Removed
+  )
+
+length_t_site_influence_summary <-
+  length_t_site_influence_table %>%
+  summarise(
+    Total_models = n(),
+    
+    Converged_models = sum(Converged),
+    
+    Failed_models = sum(!Converged),
+    
+    Minimum_beta = min(Beta_depth, na.rm = TRUE),
+    
+    Maximum_beta = max(Beta_depth, na.rm = TRUE),
+    
+    Mean_beta = mean(Beta_depth, na.rm = TRUE),
+    
+    Minimum_p = min(p_value, na.rm = TRUE),
+    
+    Maximum_p = max(p_value, na.rm = TRUE),
+    
+    Maximum_absolute_percent_change =
+      max(abs(Percent_change), na.rm = TRUE),
+    
+    Positive_coefficients =
+      sum(Beta_depth > 0, na.rm = TRUE),
+    
+    Significant_coefficients =
+      sum(p_value < 0.05, na.rm = TRUE),
+    
+    CI_excludes_zero =
+      sum(CI_lower > 0 | CI_upper < 0, na.rm = TRUE)
+  )
+
+print(t(length_t_site_influence_summary))
+
+# Base model
+
+length_t_base <- glmmTMB(
+  length_mm ~ year_decade + Month_f +
+    (1 | sample_id),
+  
+  data = length_individual_btrw,
+  family = t_family(link = "identity"),
+  REML = FALSE
+)
+
+# Single environmental predictors
+
+length_t_temp <- update(
+  length_t_base,
+  . ~ . + temp_z
+)
+
+length_t_salinity <- update(
+  length_t_base,
+  . ~ . + salinity_z
+)
+
+length_t_depth <- update(
+  length_t_base,
+  . ~ . + depth_z
+)
+
+# Two environmental predictors
+
+length_t_temp_salinity <- update(
+  length_t_base,
+  . ~ . + temp_z + salinity_z
+)
+
+length_t_temp_depth <- update(
+  length_t_base,
+  . ~ . + temp_z + depth_z
+)
+
+# Salinity-depth model using alternative starting values
+# Initial fitting attempts encountered convergence problems
+
+length_t_salinity_depth_restart <- glmmTMB(
+  length_mm ~ year_decade + Month_f +
+    salinity_z + depth_z + (1 | sample_id),
+  
+  data = length_individual_btrw,
+  family = t_family(link = "identity"),
+  REML = FALSE,
+  
+  start = list(
+    beta = c(
+      unname(
+        fixef(length_ind_student)$cond["(Intercept)"]
+      ),
+      
+      unname(
+        fixef(length_ind_student)$cond["year_decade"]
+      ),
+      
+      unname(
+        fixef(length_ind_student)$cond["Month_fOctober"]
+      ),
+      
+      0,
+      
+      unname(
+        fixef(length_ind_student)$cond["depth_z"]
+      )
+    ),
+    
+    betadisp = unname(
+      fixef(length_ind_student)$disp
+    ),
+    
+    theta = unname(
+      length_t_start_par[
+        names(length_t_start_par) == "theta"
+      ]
+    ),
+    
+    psi = log(
+      as.numeric(
+        glmmTMB::family_params(length_ind_student)
+      )
+    )
+  ),
+  
+  control = length_control
+)
+
+# Full environmental model
+
+length_t_full <- update(
+  length_t_base,
+  . ~ . + temp_z + salinity_z + depth_z
+)
+
+# Candidate model list
+
+length_t_models <- list(
+  Base = length_t_base,
+  Temperature = length_t_temp,
+  Salinity = length_t_salinity,
+  Depth = length_t_depth,
+  Temperature_Salinity = length_t_temp_salinity,
+  Temperature_Depth = length_t_temp_depth,
+  Salinity_Depth = length_t_salinity_depth_restart,
+  Full = length_t_full
+)
+
+# Check convergence of all candidate models
+
+length_t_convergence_table <- data.frame(
+  Model = names(length_t_models),
+  
+  Converged = sapply(
+    length_t_models,
+    function(m) m$fit$convergence == 0
+  ),
+  
+  Positive_Hessian = sapply(
+    length_t_models,
+    function(m) m$sdr$pdHess
+  ),
+  
+  Valid_model = vapply(
+    length_t_models,
+    length_fit_ok,
+    logical(1)
+  )
+)
+
+print(length_t_convergence_table)
+
+# AICc model selection
+
+length_t_model_table <-
+  length_aicc_table(length_t_models)
+
+print(length_t_model_table)
+
+# Confirm all candidate models were successfully fitted
+
+stopifnot(
+  all(
+    vapply(
+      length_t_models,
+      length_fit_ok,
+      logical(1)
+    )
+  )
+)
+
+# Identify best-supported model
+
+length_t_best_name <-
+  length_t_model_table$Model[1]
+
+length_t_best <-
+  length_t_models[[length_t_best_name]]
+
+length_t_best_name
+
+summary(length_t_best)
+
+VarCorr(length_t_best)
+
+glmmTMB::family_params(length_t_best)
+
+
+# ------------------------------------------------------------
+# Relative importance of environmental predictors
+# ------------------------------------------------------------
+
+length_t_variable_importance <- data.frame(
+  Predictor = c(
+    "Surface temperature",
+    "Surface salinity",
+    "Depth"
+  ),
+  
+  Importance = c(
+    
+    sum(
+      length_t_model_table$Weight[
+        length_t_model_table$Model %in%
+          c(
+            "Temperature",
+            "Temperature_Salinity",
+            "Temperature_Depth",
+            "Full"
+          )
+      ]
+    ),
+    
+    sum(
+      length_t_model_table$Weight[
+        length_t_model_table$Model %in%
+          c(
+            "Salinity",
+            "Temperature_Salinity",
+            "Salinity_Depth",
+            "Full"
+          )
+      ]
+    ),
+    
+    sum(
+      length_t_model_table$Weight[
+        length_t_model_table$Model %in%
+          c(
+            "Depth",
+            "Temperature_Depth",
+            "Salinity_Depth",
+            "Full"
+          )
+      ]
+    )
+  )
+) %>%
+  arrange(desc(Importance))
+
+print(length_t_variable_importance) 
+
+
+# ------------------------------------------------------------
+# Student's t random-effects comparison
+# ------------------------------------------------------------
+
+length_t_depth_site <- glmmTMB(
+  length_mm ~ year_decade + Month_f +
+    depth_z +
+    (1 | sample_id) +
+    (1 | Site_f),
+  
+  data = length_individual_btrw,
+  
+  family = t_family(link = "identity"),
+  
+  REML = FALSE,
+  
+  start = list(
+    beta = unname(
+      fixef(length_t_depth)$cond
+    ),
+    
+    betadisp = unname(
+      fixef(length_t_depth)$disp
+    ),
+    
+    theta = c(
+      length_start(length_t_depth)$theta,
+      log(3)
+    ),
+    
+    psi = log(
+      as.numeric(
+        glmmTMB::family_params(length_t_depth)
+      )
+    )
+  )
+)
+
+# Compare random-effects structures
+
+length_t_random_models <- list(
+  Event = length_t_depth,
+  Event_Site = length_t_depth_site
+)
+
+length_t_random_table <-
+  length_aicc_table(length_t_random_models)
+
+print(length_t_random_table)
+
+summary(length_t_depth_site)
+
+VarCorr(length_t_depth_site)
+
+# Relative contributions to random-intercept variance
+# These percentages exclude residual variance
+
+if (length_fit_ok(length_t_depth_site)) {
+  
+  length_random_variances <- sapply(
+    VarCorr(length_t_depth_site)$cond,
+    
+    function(x) {
+      as.numeric(x[1, 1])
+    }
+  )
+  
+  length_random_variance_percent <-
+    100 * length_random_variances /
+    sum(length_random_variances)
+  
+  print(length_random_variances)
+  
+  print(length_random_variance_percent)
+}
+
+# ------------------------------------------------------------
+# Retain final model
+# ------------------------------------------------------------
+
+# Depth-only environmental model retained for parsimony
+
+length_t_final <- length_t_depth
+
+stopifnot(
+  length_fit_ok(length_t_final)
+)
+
+summary(length_t_final)
+
+VarCorr(length_t_final)
+
+glmmTMB::family_params(length_t_final)
+
+# ------------------------------------------------------------
+# Compare depth and temperature-depth models
+# ------------------------------------------------------------
+
+summary(length_t_depth)
+
+summary(length_t_temp_depth)
+
+# Likelihood ratio test
+
+anova(
+  length_t_depth,
+  length_t_temp_depth
+) 
+
+# ------------------------------------------------------------
+# 18E. Alternative residual dispersion structures
+# ------------------------------------------------------------
+
+# Starting parameters from constant-dispersion Student's t model
+
+length_month_start <- length_start(length_t_final)
+
+length_month_start$betadisp <- c(
+  length_month_start$betadisp,
+  0
+)
+
+# Month-specific dispersion using alternative starting values
+
+length_t_disp_month_restart <- tryCatch(
+  
+  glmmTMB(
+    formula(length_t_final),
+    
+    data = length_individual_btrw,
+    
+    family = t_family(link = "identity"),
+    
+    REML = FALSE,
+    
+    dispformula = ~ Month_f,
+    
+    start = length_month_start,
+    
+    control = length_control
+  ),
+  
+  error = function(e) {
+    warning(conditionMessage(e))
+    NULL
+  }
+) 
+
+
+# Month-specific dispersion using BFGS optimizer
+
+length_t_disp_month_bfgs <- tryCatch(
+  
+  glmmTMB(
+    formula(length_t_final),
+    
+    data = length_individual_btrw,
+    
+    family = t_family(link = "identity"),
+    
+    REML = FALSE,
+    
+    dispformula = ~ Month_f,
+    
+    start = length_month_start,
+    
+    control = glmmTMBControl(
+      optimizer = optim,
+      
+      optArgs = list(
+        method = "BFGS"
+      ),
+      
+      optCtrl = list(
+        maxit = 1000
+      )
+    )
+  ),
+  
+  error = function(e) {
+    warning(conditionMessage(e))
+    NULL
+  }
+)
+
+# Check whether either fitting attempt was successful
+
+print(
+  c(
+    Restart = length_fit_ok(
+      length_t_disp_month_restart
+    ),
+    
+    BFGS = length_fit_ok(
+      length_t_disp_month_bfgs
+    )
+  )
+) 
+
+# The Student's t model with month-specific dispersion
+# produced a non-positive-definite Hessian matrix despite
+# using the BFGS optimizer and alternative starting values.
+#
+# Consequently, this model was excluded from AICc
+# comparisons because its parameter estimates and
+# associated uncertainty could not be considered reliable. 
+
+
+# ------------------------------------------------------------
+# Gaussian dispersion models
+# ------------------------------------------------------------
+
+# Constant residual dispersion
+
+length_gaussian_depth <- glmmTMB(
+  length_mm ~ year_decade + Month_f +
+    depth_z + (1 | sample_id),
+  
+  dispformula = ~ 1,
+  
+  data = length_individual_btrw,
+  
+  family = gaussian(link = "identity"),
+  
+  REML = FALSE
+)
+
+# Month-specific residual dispersion
+
+length_gaussian_disp_month <- glmmTMB(
+  length_mm ~ year_decade + Month_f +
+    depth_z + (1 | sample_id),
+  
+  dispformula = ~ Month_f,
+  
+  data = length_individual_btrw,
+  
+  family = gaussian(link = "identity"),
+  
+  REML = FALSE
+)
+
+summary(length_gaussian_depth)
+
+summary(length_gaussian_disp_month)
+
+# Calculate month-specific residual standard deviations
+
+gaussian_disp_coef <-
+  fixef(length_gaussian_disp_month)$disp
+
+september_sd <- exp(
+  gaussian_disp_coef["(Intercept)"]
+)
+
+october_sd <- exp(
+  gaussian_disp_coef["(Intercept)"] +
+    gaussian_disp_coef["Month_fOctober"]
+)
+
+# Residual dispersion table
+
+length_gaussian_dispersion_table <- data.frame(
+  Month = c("September", "October"),
+  
+  Residual_SD = c(
+    september_sd,
+    october_sd
+  ),
+  
+  Residual_Variance = c(
+    september_sd^2,
+    october_sd^2
+  )
+)
+
+print(length_gaussian_dispersion_table)
+
+# ------------------------------------------------------------
+# Compare distributions and dispersion structures
+# ------------------------------------------------------------
+
+length_distribution_models <- list(
+  Gaussian_Constant = length_gaussian_depth,
+  
+  Gaussian_Month = length_gaussian_disp_month,
+  
+  Student_t_Constant = length_t_final
+)
+
+# Include month-specific Student's t model only if valid
+
+if (length_fit_ok(length_t_disp_month_restart)) {
+  
+  length_distribution_models$Student_t_Month <-
+    length_t_disp_month_restart
+  
+} else if (length_fit_ok(length_t_disp_month_bfgs)) {
+  
+  length_distribution_models$Student_t_Month <-
+    length_t_disp_month_bfgs
+}
+
+# Model selection table
+
+length_distribution_table <-
+  length_aicc_table(length_distribution_models)
+
+print(length_distribution_table)
+
+# ------------------------------------------------------------
+# Gaussian month-specific dispersion diagnostics
+# ------------------------------------------------------------
+
+sim_length_gaussian_disp_month <-
+  DHARMa::simulateResiduals(
+    fittedModel = length_gaussian_disp_month,
+    n = 1000,
+    seed = 123
+  )
+
+plot(sim_length_gaussian_disp_month)
+
+testUniformity(sim_length_gaussian_disp_month)
+
+testDispersion(sim_length_gaussian_disp_month)
+
+testOutliers(
+  sim_length_gaussian_disp_month,
+  type = "bootstrap"
+)
+
+plotResiduals(
+  sim_length_gaussian_disp_month,
+  form = length_individual_btrw$Month_f
+) 
+
+# ------------------------------------------------------------
+# 18F. Final Student's t model diagnostics
+# ------------------------------------------------------------
+
+# Conditional simulations
+# Retain fitted sampling-event random effects
+
+sim_length_t_conditional <-
+  DHARMa::simulateResiduals(
+    fittedModel = length_t_final,
+    n = 1000,
+    simulateREs = "conditional",
+    seed = 123
+  )
+
+plot(sim_length_t_conditional)
+
+testUniformity(sim_length_t_conditional)
+
+testDispersion(sim_length_t_conditional)
+
+testOutliers(
+  sim_length_t_conditional,
+  type = "bootstrap"
+)
+
+# Unconditional simulations
+# Resimulate sampling-event random effects
+
+sim_length_t_unconditional <-
+  DHARMa::simulateResiduals(
+    fittedModel = length_t_final,
+    n = 1000,
+    simulateREs = "unconditional",
+    seed = 123
+  )
+
+plot(sim_length_t_unconditional)
+
+testUniformity(sim_length_t_unconditional)
+
+testDispersion(sim_length_t_unconditional)
+
+testOutliers(
+  sim_length_t_unconditional,
+  type = "bootstrap"
+)
+
+
+# ------------------------------------------------------------
+# Aggregate residuals by sampling event
+# ------------------------------------------------------------
+
+length_model_data <- model.frame(length_t_final)
+
+length_event_group <- factor(
+  length_model_data$sample_id
+)
+
+# Conditional event-level residuals
+
+sim_length_t_conditional_event <-
+  DHARMa::recalculateResiduals(
+    sim_length_t_conditional,
+    group = length_event_group
+  )
+
+plot(sim_length_t_conditional_event)
+
+testUniformity(sim_length_t_conditional_event)
+
+testDispersion(sim_length_t_conditional_event)
+
+# Unconditional event-level residuals
+
+sim_length_t_unconditional_event <-
+  DHARMa::recalculateResiduals(
+    sim_length_t_unconditional,
+    group = length_event_group
+  )
+
+plot(sim_length_t_unconditional_event)
+
+testUniformity(sim_length_t_unconditional_event)
+
+testDispersion(sim_length_t_unconditional_event)
+
+# ------------------------------------------------------------
+# Summarize simulation-based residual diagnostics
+# ------------------------------------------------------------
+
+length_simulation_models <- list(
+  Individual_Conditional =
+    sim_length_t_conditional,
+  
+  Individual_Unconditional =
+    sim_length_t_unconditional,
+  
+  Event_Conditional =
+    sim_length_t_conditional_event,
+  
+  Event_Unconditional =
+    sim_length_t_unconditional_event
+)
+
+length_simulation_table <- do.call(
+  rbind,
+  
+  lapply(
+    names(length_simulation_models),
+    
+    function(model_name) {
+      
+      sim <- length_simulation_models[[model_name]]
+      
+      uniformity <- DHARMa::testUniformity(
+        sim,
+        plot = FALSE
+      )
+      
+      dispersion <- DHARMa::testDispersion(
+        sim,
+        plot = FALSE
+      )
+      
+      data.frame(
+        Simulation = model_name,
+        
+        N = length(sim$scaledResiduals),
+        
+        KS_statistic = unname(
+          uniformity$statistic
+        ),
+        
+        Uniformity_p = uniformity$p.value,
+        
+        Dispersion = unname(
+          dispersion$statistic
+        ),
+        
+        Dispersion_p = dispersion$p.value
+      )
+    }
+  )
+)
+
+print(
+  length_simulation_table,
+  row.names = FALSE
+)
+
+# ------------------------------------------------------------
+# Individual-level residuals versus predictors
+# ------------------------------------------------------------
+
+# Conditional simulations
+
+plotResiduals(
+  sim_length_t_conditional,
+  form = length_model_data$depth_z
+)
+
+plotResiduals(
+  sim_length_t_conditional,
+  form = length_model_data$year_decade
+)
+
+plotResiduals(
+  sim_length_t_conditional,
+  form = length_model_data$Month_f
+)
+
+plotResiduals(
+  sim_length_t_conditional,
+  form = length_individual_btrw$temp_z
+)
+
+plotResiduals(
+  sim_length_t_conditional,
+  form = length_individual_btrw$salinity_z
+)
+
+# Unconditional simulations
+
+plotResiduals(
+  sim_length_t_unconditional,
+  form = length_model_data$depth_z
+)
+
+plotResiduals(
+  sim_length_t_unconditional,
+  form = length_model_data$year_decade
+)
+
+plotResiduals(
+  sim_length_t_unconditional,
+  form = length_model_data$Month_f
+)
+
+# ------------------------------------------------------------
+# Event-level residuals versus predictors
+# ------------------------------------------------------------
+
+# Verify that event predictors follow the same aggregation
+# order as the DHARMa event-level residuals
+
+length_event_sums <- tapply(
+  length_model_data$length_mm,
+  length_event_group,
+  sum
+)
+
+stopifnot(
+  isTRUE(
+    all.equal(
+      as.numeric(length_event_sums),
+      
+      as.numeric(
+        sim_length_t_unconditional_event$observedResponse
+      )
+    )
+  )
+)
+
+# Aggregate predictors by sampling event
+
+length_event_depth <- tapply(
+  length_model_data$depth_z,
+  length_event_group,
+  mean
+)
+
+length_event_year <- tapply(
+  length_model_data$year_decade,
+  length_event_group,
+  mean
+)
+
+length_event_month <- tapply(
+  as.character(length_model_data$Month_f),
+  
+  length_event_group,
+  
+  function(x) {
+    stopifnot(length(unique(x)) == 1)
+    unique(x)[1]
+  }
+)
+
+# Check predictor and residual lengths
+
+stopifnot(
+  length(length_event_depth) ==
+    length(
+      sim_length_t_unconditional_event$scaledResiduals
+    ),
+  
+  length(length_event_year) ==
+    length(
+      sim_length_t_unconditional_event$scaledResiduals
+    ),
+  
+  length(length_event_month) ==
+    length(
+      sim_length_t_unconditional_event$scaledResiduals
+    )
+)
+
+# Event-level depth diagnostics
+
+DHARMa::plotResiduals(
+  sim_length_t_unconditional_event,
+  
+  form = as.numeric(length_event_depth)
+)
+
+# Event-level year diagnostics
+
+DHARMa::plotResiduals(
+  sim_length_t_unconditional_event,
+  
+  form = as.numeric(length_event_year)
+)
+
+# Event-level month diagnostics
+
+DHARMa::plotResiduals(
+  sim_length_t_unconditional_event,
+  
+  form = factor(
+    length_event_month,
+    
+    levels = c("September", "October")
+  )
+)
+
+# ------------------------------------------------------------
+# Compare diagnostics with temperature-depth alternative
+# ------------------------------------------------------------
+
+sim_length_t_temp_depth <-
+  DHARMa::simulateResiduals(
+    fittedModel = length_t_temp_depth,
+    n = 1000,
+    simulateREs = "conditional",
+    seed = 123
+  )
+
+plot(sim_length_t_temp_depth)
+
+testUniformity(sim_length_t_temp_depth)
+
+testDispersion(sim_length_t_temp_depth)
+
+testOutliers(
+  sim_length_t_temp_depth,
+  type = "bootstrap"
+)
+
+# ------------------------------------------------------------
+# 18G. Leave-one-out sensitivity analyses
+# ------------------------------------------------------------
+
+# Original depth coefficient
+
+original_depth_beta <-
+  fixef(length_t_final)$cond["depth_z"]
+
+# Retain original model data and standardized predictors
+
+length_influence_data <- length_individual_btrw
+
+stopifnot(
+  nrow(length_influence_data) ==
+    nobs(length_t_final)
+)
+
+# Function to sequentially exclude events or sites
+
+length_leave_one_out <- function(group) {
+  
+  ids <- unique(
+    as.character(length_influence_data[[group]])
+  )
+  
+  bind_rows(
+    
+    lapply(ids, function(id) {
+      
+      # Identify observations to remove
+      
+      removed <-
+        as.character(
+          length_influence_data[[group]]
+        ) == id
+      
+      # Create reduced dataset
+      
+      sensitivity_data <- droplevels(
+        length_influence_data[!removed, ]
+      )
+      
+      # Refit selected model
+      
+      sensitivity_model <- tryCatch(
+        
+        glmmTMB(
+          formula(length_t_final),
+          
+          data = sensitivity_data,
+          
+          family = t_family(link = "identity"),
+          
+          REML = FALSE,
+          
+          start = length_start(length_t_final),
+          
+          control = length_control
+        ),
+        
+        error = function(e) {
+          warning(conditionMessage(e))
+          NULL
+        }
+      )
+      
+      # Check convergence
+      
+      converged <- length_fit_ok(
+        sensitivity_model
+      )
+      
+      beta <- se <- p <- NA_real_
+      
+      # Extract depth coefficient if fit is valid
+      
+      if (converged) {
+        
+        coef_table <- summary(
+          sensitivity_model
+        )$coefficients$cond
+        
+        beta <- coef_table[
+          "depth_z", "Estimate"
+        ]
+        
+        se <- coef_table[
+          "depth_z", "Std. Error"
+        ]
+        
+        p <- coef_table[
+          "depth_z", "Pr(>|z|)"
+        ]
+      }
+      
+      # Store sensitivity results
+      
+      tibble(
+        Removed = id,
+        
+        N_removed = sum(removed),
+        
+        Events_removed = n_distinct(
+          length_influence_data$sample_id[removed]
+        ),
+        
+        Beta_depth = beta,
+        
+        SE_depth = se,
+        
+        p_value = p,
+        
+        Converged = converged
+      )
+    })
+  ) %>%
+    
+    mutate(
+      Beta_change =
+        Beta_depth - original_depth_beta,
+      
+      Percent_change =
+        100 * Beta_change / original_depth_beta,
+      
+      CI_lower =
+        Beta_depth - 1.96 * SE_depth,
+      
+      CI_upper =
+        Beta_depth + 1.96 * SE_depth
+    ) %>%
+    
+    arrange(
+      desc(abs(Percent_change))
+    )
+}
+
+# ------------------------------------------------------------
+# Leave-one-sampling-event-out sensitivity analysis
+# ------------------------------------------------------------
+
+length_t_influence_table <-
+  length_leave_one_out("sample_id") %>%
+  rename(
+    Removed_event = Removed
+  )
+
+# Ten most influential sampling events
+
+print(
+  head(length_t_influence_table, 10),
+  width = Inf
+)
+
+# ------------------------------------------------------------
+# Leave-one-site-out sensitivity analysis
+# ------------------------------------------------------------
+
+length_t_site_influence_table <-
+  length_leave_one_out("Site_f") %>%
+  rename(
+    Removed_site = Removed
+  )
+
+print(
+  length_t_site_influence_table,
+  width = Inf
+) 
+
+# ------------------------------------------------------------
+# Function to summarize sensitivity analyses
+# ------------------------------------------------------------
+
+length_influence_summary <- function(x) {
+  
+  # Return NA if no valid coefficient estimates are available
+  
+  safe <- function(v, fun) {
+    
+    if (all(is.na(v))) {
+      
+      NA_real_
+      
+    } else {
+      
+      fun(v, na.rm = TRUE)
+    }
+  }
+  
+  x %>%
+    summarise(
+      Total_models = n(),
+      
+      Converged_models = sum(Converged),
+      
+      Failed_models = sum(!Converged),
+      
+      Minimum_beta = safe(
+        Beta_depth, min
+      ),
+      
+      Maximum_beta = safe(
+        Beta_depth, max
+      ),
+      
+      Mean_beta = safe(
+        Beta_depth, mean
+      ),
+      
+      Minimum_p = safe(
+        p_value, min
+      ),
+      
+      Maximum_p = safe(
+        p_value, max
+      ),
+      
+      Maximum_absolute_percent_change = safe(
+        abs(Percent_change), max
+      ),
+      
+      Positive_coefficients = sum(
+        Beta_depth > 0,
+        na.rm = TRUE
+      ),
+      
+      Significant_coefficients = sum(
+        p_value < 0.05,
+        na.rm = TRUE
+      ),
+      
+      CI_excludes_zero = sum(
+        CI_lower > 0 | CI_upper < 0,
+        na.rm = TRUE
+      )
+    )
+}
+
+# Event-level sensitivity summary
+
+length_t_influence_summary <-
+  length_influence_summary(
+    length_t_influence_table
+  )
+
+# Site-level sensitivity summary
+
+length_t_site_influence_summary <-
+  length_influence_summary(
+    length_t_site_influence_table
+  )
+
+# Print vertically for readability
+
+print(t(length_t_influence_summary))
+
+print(t(length_t_site_influence_summary)) 
+
+# ------------------------------------------------------------
+# 18H. Final Student's t model coefficient table
+# ------------------------------------------------------------
+
+length_t_coefficient_table <- as.data.frame(
+  summary(length_t_final)$coefficients$cond
+) %>%
+  
+  tibble::rownames_to_column("Predictor") %>%
+  
+  rename(
+    Beta = Estimate,
+    
+    SE = `Std. Error`,
+    
+    Z_value = `z value`,
+    
+    p_value = `Pr(>|z|)`
+  ) %>%
+  
+  mutate(
+    CI_lower = Beta - 1.96 * SE,
+    
+    CI_upper = Beta + 1.96 * SE,
+    
+    Predictor = dplyr::recode(
+      Predictor,
+      
+      "(Intercept)" = "Intercept",
+      
+      "year_decade" = "Year (per decade)",
+      
+      "Month_fOctober" = "October",
+      
+      "depth_z" = "Depth (1 SD)"
+    )
+  )
+
+print(length_t_coefficient_table)
+
+# Formatted table for thesis
+
+length_t_coefficient_table_formatted <-
+  length_t_coefficient_table %>%
+  
+  mutate(
+    across(
+      c(
+        Beta,
+        SE,
+        Z_value,
+        CI_lower,
+        CI_upper
+      ),
+      
+      ~ round(.x, 3)
+    ),
+    
+    p_value = ifelse(
+      p_value < 0.001,
+      "<0.001",
+      sprintf("%.3f", p_value)
+    )
+  )
+
+print(length_t_coefficient_table_formatted)
+
+# ------------------------------------------------------------
+# Convert depth effect to original measurement units
+# ------------------------------------------------------------
+
+# Use original event-level depth standardization
+
+length_depth_mean <- mean(
+  length_btrw_env$mean_depth
+)
+
+length_depth_sd <- sd(
+  length_btrw_env$mean_depth
+)
+
+length_depth_mean
+
+length_depth_sd
+
+# Verify original standardization
+
+stopifnot(
+  isTRUE(
+    all.equal(
+      as.numeric(length_btrw_env$depth_z),
+      
+      as.numeric(
+        (length_btrw_env$mean_depth -
+           length_depth_mean) /
+          length_depth_sd
+      )
+    )
+  )
+)
+
+# Extract depth coefficient and standard error
+
+depth_beta <-
+  fixef(length_t_final)$cond["depth_z"]
+
+depth_se <-
+  summary(length_t_final)$coefficients$cond[
+    "depth_z", "Std. Error"
+  ]
+
+# Calculate estimated effect per meter
+
+depth_effect_meters <- data.frame(
+  Beta_per_meter =
+    depth_beta / length_depth_sd,
+  
+  SE =
+    depth_se / length_depth_sd,
+  
+  CI_lower =
+    (depth_beta - 1.96 * depth_se) /
+    length_depth_sd,
+  
+  CI_upper =
+    (depth_beta + 1.96 * depth_se) /
+    length_depth_sd
+)
+
+print(depth_effect_meters) 
+
+# ------------------------------------------------------------
+# Final length dataset characteristics
+# ------------------------------------------------------------
+
+length_dataset_summary <-
+  length_individual_btrw %>%
+  
+  summarise(
+    N_individuals = n(),
+    
+    N_events = n_distinct(sample_id),
+    
+    N_sites = n_distinct(Site_f),
+    
+    Minimum_length = min(length_mm),
+    
+    Maximum_length = max(length_mm),
+    
+    Mean_length = mean(length_mm),
+    
+    Median_length = median(length_mm),
+    
+    SD_length = sd(length_mm)
+  )
+
+print(length_dataset_summary)
+
+# Monthly sample sizes and depth ranges
+
+length_month_summary <-
+  length_individual_btrw %>%
+  
+  group_by(Month_f) %>%
+  
+  summarise(
+    Minimum_depth = min(mean_depth),
+    
+    Maximum_depth = max(mean_depth),
+    
+    N_individuals = n(),
+    
+    N_events = n_distinct(sample_id),
+    
+    .groups = "drop"
+  )
+
+print(length_month_summary) 
+
+# ------------------------------------------------------------
+# 18I. Predicted mean shrimp length versus depth
+# ------------------------------------------------------------
+
+# Generate month-specific depth sequences
+# Restrict predictions to observed monthly depth ranges
+
+length_depth_predictions <-
+  length_individual_btrw %>%
+  
+  group_by(Month_f) %>%
+  
+  summarise(
+    min_depth = min(mean_depth),
+    
+    max_depth = max(mean_depth),
+    
+    .groups = "drop"
+  ) %>%
+  
+  rowwise() %>%
+  
+  mutate(
+    mean_depth = list(
+      seq(
+        min_depth,
+        max_depth,
+        length.out = 100
+      )
+    )
+  ) %>%
+  
+  ungroup() %>%
+  
+  tidyr::unnest(mean_depth) %>%
+  
+  mutate(
+    # Reference year: 2008
+    
+    year_decade = 0,
+    
+    # Apply original event-level standardization
+    
+    depth_z =
+      (mean_depth - length_depth_mean) /
+      length_depth_sd,
+    
+    # Random-effect grouping variable required for prediction
+    
+    sample_id =
+      length_individual_btrw$sample_id[1]
+  )
+
+# Population-level predictions
+# Sampling-event random effects set to zero
+
+length_depth_pred <- predict(
+  length_t_final,
+  
+  newdata = length_depth_predictions,
+  
+  type = "response",
+  
+  re.form = NA,
+  
+  se.fit = TRUE
+)
+
+# Calculate approximate 95% Wald confidence intervals
+
+length_depth_predictions <-
+  length_depth_predictions %>%
+  
+  mutate(
+    Predicted_length = length_depth_pred$fit,
+    
+    SE = length_depth_pred$se.fit,
+    
+    CI_lower =
+      Predicted_length - 1.96 * SE,
+    
+    CI_upper =
+      Predicted_length + 1.96 * SE
+  ) 
+
+# ------------------------------------------------------------
+# Final predicted length-versus-depth figure
+# ------------------------------------------------------------
+
+fig_length_depth_final <- ggplot(
+  length_depth_predictions,
+  
+  aes(
+    x = mean_depth,
+    
+    y = Predicted_length,
+    
+    color = Month_f,
+    
+    fill = Month_f
+  )
+) +
+  
+  geom_ribbon(
+    aes(
+      ymin = CI_lower,
+      ymax = CI_upper
+    ),
+    
+    alpha = 0.15,
+    
+    color = NA
+  ) +
+  
+  geom_line(
+    linewidth = 1
+  ) +
+  
+  scale_x_continuous(
+    breaks = seq(1, 3.5, by = 0.5)
+  ) +
+  
+  labs(
+    x = "Depth (m)",
+    
+    y = "Predicted mean shrimp length (mm)",
+    
+    color = "Month",
+    
+    fill = "Month"
+  ) +
+  
+  theme_bw() +
+  
+  theme(
+    axis.title = element_text(size = 12),
+    
+    axis.text = element_text(size = 11),
+    
+    legend.position = "top",
+    
+    panel.grid.minor = element_blank()
+  )
+
+fig_length_depth_final
+
+# ------------------------------------------------------------
+# 18J. Sensitivity analysis figures
+# ------------------------------------------------------------
+
+fig_length_event_influence <- ggplot(
+  length_t_influence_table %>%
+    filter(Converged),
+  
+  aes(
+    x = reorder(Removed_event, Beta_depth),
+    
+    y = Beta_depth
+  )
+) +
+  
+  geom_point() +
+  
+  geom_errorbar(
+    aes(
+      ymin = CI_lower,
+      ymax = CI_upper
+    ),
+    
+    width = 0.2
+  ) +
+  
+  geom_hline(
+    yintercept = original_depth_beta,
+    
+    linetype = "dashed",
+    
+    color = "blue"
+  ) +
+  
+  geom_hline(
+    yintercept = 0,
+    
+    linetype = "dotted",
+    
+    color = "red"
+  ) +
+  
+  labs(
+    x = "Excluded sampling event",
+    
+    y = "Depth coefficient (mm per SD)"
+  ) +
+  
+  theme_bw() +
+  
+  theme(
+    axis.text.x = element_blank(),
+    
+    axis.ticks.x = element_blank(),
+    
+    panel.grid.minor = element_blank()
+  )
+
+fig_length_event_influence 
+
+# ------------------------------------------------------------
+# Site-level sensitivity figure
+# ------------------------------------------------------------
+
+fig_length_site_influence <- ggplot(
+  length_t_site_influence_table %>%
+    filter(Converged),
+  
+  aes(
+    x = reorder(Removed_site, Beta_depth),
+    
+    y = Beta_depth
+  )
+) +
+  
+  geom_point() +
+  
+  geom_errorbar(
+    aes(
+      ymin = CI_lower,
+      ymax = CI_upper
+    ),
+    
+    width = 0.2
+  ) +
+  
+  geom_hline(
+    yintercept = original_depth_beta,
+    
+    linetype = "dashed",
+    
+    color = "blue"
+  ) +
+  
+  geom_hline(
+    yintercept = 0,
+    
+    linetype = "dotted",
+    
+    color = "red"
+  ) +
+  
+  coord_flip() +
+  
+  labs(
+    x = "Excluded sampling site",
+    
+    y = "Depth coefficient (mm per SD)"
+  ) +
+  
+  theme_bw() +
+  
+  theme(
+    panel.grid.minor = element_blank()
+  )
+
+fig_length_site_influence
+
+
 # ============================================================
-# 18. FINAL RESULTS TABLES
+# 19. FINAL RESULTS TABLES
 # ============================================================
 
 # ------------------------------------------------------------
-# 18A. Occurrence model-selection table
+# 19A. Occurrence model-selection table
 # ------------------------------------------------------------
 
 occurrence_model_table <- occurrence_model_selection_btrw %>%
@@ -4984,7 +7435,7 @@ print(occurrence_model_table)
 
 
 # ------------------------------------------------------------
-# 18B. Final occurrence model coefficients
+# 19B. Final occurrence model coefficients
 # ------------------------------------------------------------
 
 occurrence_coefficient_table <- occurrence_results %>%
@@ -5031,7 +7482,7 @@ print(occurrence_coefficient_table)
 
 
 # ------------------------------------------------------------
-# 18C. Positive-catch model-selection table
+# 19C. Positive-catch model-selection table
 # ------------------------------------------------------------
 
 
@@ -5080,7 +7531,7 @@ print(positive_model_table)
 
 
 # ------------------------------------------------------------
-# 18D. Final positive-catch model coefficients
+# 19D. Final positive-catch model coefficients
 # ------------------------------------------------------------
 
 # ------------------------------------------------------------
@@ -5148,7 +7599,7 @@ print(positive_coefficient_table)
 
 
 # ------------------------------------------------------------
-# 18E. Length model-selection table
+# 19E. Length model-selection table
 # ------------------------------------------------------------
 
 length_model_table <- length_model_selection %>%
@@ -5187,7 +7638,7 @@ print(length_model_table)
 
 
 # ------------------------------------------------------------
-# 18F. Final length model parameters (HC3 robust SE)
+# 19F. Final length model parameters (HC3 robust SE)
 # ------------------------------------------------------------
 
 # Set the selected model
@@ -5247,7 +7698,7 @@ print(length_parameter_table)
 
 
 # ------------------------------------------------------------
-# 18G. Length sensitivity analysis model selection
+# 19G. Length sensitivity analysis model selection
 # Datset restricted to events with at least 2 shrimp
 # ------------------------------------------------------------
 
@@ -5269,7 +7720,7 @@ head(as.data.frame(length_model_selection_sensitivity))
 
 
 # ------------------------------------------------------------
-# 18H. Length sensitivity analysis model selection table
+# 19H. Length sensitivity analysis model selection table
 # Included events with at least 2 shrimp (n = 63)
 # ------------------------------------------------------------
 
@@ -5304,7 +7755,7 @@ print(length_sensitivity_table)
 
 
 # ------------------------------------------------------------
-# 18I. Length sensitivity analysis coefficient table
+# 19I. Length sensitivity analysis coefficient table
 # ------------------------------------------------------------
 
 # Extract the temperature + depth sensitivity model
@@ -5389,7 +7840,7 @@ which(
 )
 
 # ------------------------------------------------------------
-# 18J. Influence sensitivity analysis
+# 19J. Influence sensitivity analysis
 # ------------------------------------------------------------
 
 # Identify observations exceeding the Cook's distance threshold
@@ -5465,7 +7916,7 @@ print(length_influence_table)
 
 
 # ============================================================
-# 19. MAP WITH MORE THAN 39 SITES
+# 20. MAP WITH MORE THAN 39 SITES
 #shows individual sampling-event locations rather than unique designated sites.
 # ============================================================
 
@@ -5698,7 +8149,7 @@ fall_1990_2018 %>%
   print(n = Inf)
 
 # ============================================================
-# 20. FINALIZED FIGURES
+# 21. FINALIZED FIGURES
 # ============================================================
 
 
@@ -5742,7 +8193,7 @@ print(fig_length_year)
 
 
 # ============================================================
-# 21. FINAL TABLES
+# 22. FINAL TABLES
 # ============================================================
 
 white_shrimp_main_tables <- list(
@@ -5796,7 +8247,7 @@ white_shrimp_main_tables$length_coefficients
 
 
 # ============================================================
-# 22. TABLE AND FIGURE DISPLAY
+# 23. TABLE AND FIGURE DISPLAY
 # ============================================================
 
 # ------------------------------------------------------------
@@ -5837,7 +8288,7 @@ print(fig_positive_salinity)
 
 
 # ------------------------------------------------------------
-# SHRIMP LENGTH
+# MEDIAN SHRIMP LENGTH
 # ------------------------------------------------------------
 
 print(length_model_table)
@@ -5845,6 +8296,52 @@ print(length_parameter_table)
 
 print(fig_length_year)
 print(fig_length_depth)
+
+# ------------------------------------------------------------
+# INDIVIDUAL WHITE SHRIMP LENGTH (USED FOR THESIS)
+# ------------------------------------------------------------
+print(length_distribution_table) #table
+print(length_t_model_table) #table
+print(depth_effect_meters) 
+
+print(length_t_coefficient_table_formatted) #table
+print(length_t_random_table)
+print(length_t_influence_summary)
+print(length_t_site_influence_summary)
+print(length_gaussian_dispersion_table)
+
+#Figures
+##Fixing individual length year plot
+fig_length_year_individual <- ggplot(
+  length_individual_btrw,
+  aes(x = factor(Year), y = length_mm)
+) +
+  geom_boxplot(
+    fill = "lightblue",
+    outlier.shape = NA,
+    width = 0.6
+  ) +
+  geom_jitter(
+    width = 0.15,
+    height = 0,
+    size = 1.5,
+    alpha = 0.5
+  ) +
+  labs(
+    x = "Year",
+    y = "Individual shrimp length (mm)"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1
+    )
+  )
+
+print(fig_length_year_individual)
+print(fig_length_depth_final)
+print(fig_ind_length_distribution)
 
 
 # ------------------------------------------------------------
@@ -5855,14 +8352,11 @@ print(fig_spatial_1990_2018)
 
 
 # ------------------------------------------------------------
-# ADDITIONAL SENSITIVITY TABLES
+# ADDITIONAL SENSITIVITY TABLES- MEDIAN WHITE SHRIMP LENGTH
 # ------------------------------------------------------------
 
 print(length_sensitivity_table)
 print(length_sensitivity_table_coefficients)
-
-
-
 
 
 # Exact predicted occurrence by period and month
@@ -5889,8 +8383,10 @@ salinity_predictions_df %>%
   print()
 
 
+# ------------------------------------------------------------
+# Sampling events, detections, and occurrence graphs/table from preliminary anaysis## 
+# ------------------------------------------------------------
 
-##Sampling events, detections, and occurrence graphs/table from preliminary anaysis## 
 
 ##Calculate occurrence by period and gear  
 
@@ -5970,24 +8466,6 @@ ggplot(
     legend.position = "top"
   ) 
 
-# ------------------------------------------------------------
-# CALLING DHARMA MODEL DIAGNOSTICS
-# ------------------------------------------------------------
-
-# Occurrence
-DHARMa::testUniformity(sim_occurrence)
-DHARMa::testDispersion(sim_occurrence)
-DHARMa::testOutliers(sim_occurrence)
-DHARMa::testZeroInflation(sim_occurrence)
-
-plot(sim_occurrence) 
-
-# Abundance 
-DHARMa::testUniformity(sim_positive)
-DHARMa::testDispersion(sim_positive)
-DHARMa::testOutliers(sim_positive)
-
-plot(sim_positive)
 
 
 
