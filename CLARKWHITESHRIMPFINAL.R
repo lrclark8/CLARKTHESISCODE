@@ -5860,7 +5860,9 @@ print(fig_spatial_1990_2018)
 
 print(length_sensitivity_table)
 print(length_sensitivity_table_coefficients)
-print(length_influence_table)
+
+
+
 
 
 # Exact predicted occurrence by period and month
@@ -5913,7 +5915,7 @@ prelim_occurrence <- fall_1990_2018 %>%
 
 print(prelim_occurrence)
 
-##Annual occurrence percentages and graph
+##Annual occurrence percentages and graph###
 
 
 annual_occurrence_sep <- fall_1990_2018 %>%
@@ -5968,6 +5970,24 @@ ggplot(
     legend.position = "top"
   ) 
 
+# ------------------------------------------------------------
+# CALLING DHARMA MODEL DIAGNOSTICS
+# ------------------------------------------------------------
+
+# Occurrence
+DHARMa::testUniformity(sim_occurrence)
+DHARMa::testDispersion(sim_occurrence)
+DHARMa::testOutliers(sim_occurrence)
+DHARMa::testZeroInflation(sim_occurrence)
+
+plot(sim_occurrence) 
+
+# Abundance 
+DHARMa::testUniformity(sim_positive)
+DHARMa::testDispersion(sim_positive)
+DHARMa::testOutliers(sim_positive)
+
+plot(sim_positive)
 
 
 
