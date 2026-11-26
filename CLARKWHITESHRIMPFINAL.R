@@ -8344,6 +8344,9 @@ print(fig_length_depth_final)
 print(fig_ind_length_distribution)
 
 
+print(length_annual_summary, n = Inf)
+
+
 # ------------------------------------------------------------
 # SPATIAL DISTRIBUTION
 # ------------------------------------------------------------
