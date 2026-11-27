@@ -1401,7 +1401,28 @@ spatial_summary <- spatial_data %>%
     .groups = "drop"
   )
 
-print(spatial_summary, width = Inf)
+print(spatial_summary, width = Inf) 
+
+spatial_data %>%
+  mutate(
+    percent_occurrence =
+      100 * positive_detections / sampling_events
+  ) %>%
+  filter(detected) %>%
+  select(
+    Period,
+    Gear,
+    Site,
+    sampling_events,
+    positive_detections,
+    percent_occurrence
+  ) %>%
+  arrange(
+    Period,
+    Gear,
+    desc(percent_occurrence)
+  ) %>%
+  print(n = Inf)
 
 # ============================================================
 # SEASONAL WHITE SHRIMP CATCH: APRIL–OCTOBER
