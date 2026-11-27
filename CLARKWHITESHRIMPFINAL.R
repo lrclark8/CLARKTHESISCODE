@@ -1156,8 +1156,9 @@ site_detection_map %>%
 # 3N. Revised Map
 # ============================================================
 
-# Restrict mapping to the 39 designated sampling sites
-# and summarize detections by site and period
+# Restrict mapping to sampling sites with available
+# geographic coordinates and summarize detections
+# by site, gear type, and temporal period
 
 
 
@@ -1272,18 +1273,7 @@ fig_spatial_1990_2018 <- ggplot() +
   ) +
   
   # Designated sampling locations
-  geom_sf(
-    data = spatial_sf %>%
-      filter(detected),
-    aes(
-      color = Gear,
-      size = percent_occurrence
-    ),
-    alpha = 1
-  ) +
-  
-  # White shrimp detections colored by gear
-  # Sampling sites without white shrimp detections
+  # Sampling sites without recorded white shrimp detections
   geom_sf(
     data = spatial_sf %>%
       filter(!detected),
@@ -1293,17 +1283,16 @@ fig_spatial_1990_2018 <- ggplot() +
   ) +
   
   # White shrimp detections colored by gear
-  # and sized by number of positive sampling events
+  # and sized by percentage occurrence
   geom_sf(
     data = spatial_sf %>%
       filter(detected),
     aes(
       color = Gear,
-      size = positive_detections
+      size = percent_occurrence
     ),
-    alpha = 0.5
+    alpha = 0.8
   ) +
-  
   # Gear-specific colors
   scale_color_manual(
     name = "Sampling gear",
@@ -1360,11 +1349,13 @@ fig_spatial_1990_2018 <- ggplot() +
     x = "Longitude",
     y = "Latitude",
     caption = paste(
-      "Black = designated sampling sites;",
+      "Black = sampled sites without detections;",
       "Red = BTRW detections;",
-      "Blue = BCHS100 detections"
+      "Blue = BCHS100 detections.",
+      "\nPoint size represents percentage occurrence.",
+      "\nBasemap: © OpenStreetMap contributors"
     )
-  ) +
+    ) +
   
   theme_minimal(base_size = 12) +
   
