@@ -1159,61 +1159,15 @@ site_detection_map %>%
 # Restrict mapping to the 39 designated sampling sites
 # and summarize detections by site and period
 
+
+
 period_levels <- c(
   "1990–2007",
   "2008–2012",
   "2013–2018"
 )
 
-spatial_data <- fall_1990_2018 %>%
-  filter(
-    Gear %in% c("BTRW", "BCHS100")
-  ) %>%
-  semi_join(
-    site_coordinates,
-    by = c("Gear", "Site")
-  ) %>%
-  mutate(
-    Period = case_when(
-      Year < 2008 ~ "1990–2007",
-      Year >= 2008 & Year <= 2012 ~ "2008–2012",
-      Year >= 2013 & Year <= 2018 ~ "2013–2018"
-    ),
-    Period = factor(
-      Period,
-      levels = period_levels
-    )
-  ) %>%
-  group_by(Period, Gear, Site) %>%
-  summarise(
-    sampling_events = n(),
-    positive_events = sum(
-      presence == 1,
-      na.rm = TRUE
-    ),
-    total_shrimp = sum(
-      abundance,
-      na.rm = TRUE
-    ),
-    detected = any(
-      presence == 1,
-      na.rm = TRUE
-    ),
-    .groups = "drop"
-  ) %>%
-  left_join(
-    site_coordinates,
-    by = c("Gear", "Site"),
-    relationship = "many-to-one"
-  ) %>%
-  mutate(
-    Gear = factor(
-      Gear,
-      levels = c("BTRW", "BCHS100")
-    )
-  ) 
-
-
+# Add historical coordinates for site B013
 site_coordinates <- site_coordinates %>%
   filter(!(Site == "B013" & Gear == "BCHS100")) %>%
   bind_rows(
@@ -1226,6 +1180,42 @@ site_coordinates <- site_coordinates %>%
     )
   )
 
+# Restrict sampling events to September and October
+spatial_events <- fall_1990_2018 %>%
+  filter(
+    Month %in% c(9, 10),
+    Gear %in% c("BTRW", "BCHS100")
+  ) %>%
+  mutate(
+    Period = case_when(
+      Year >= 1990 & Year <= 2007 ~ "1990–2007",
+      Year >= 2008 & Year <= 2012 ~ "2008–2012",
+      Year >= 2013 & Year <= 2018 ~ "2013–2018"
+    ),
+    Period = factor(Period, levels = period_levels)
+  ) %>%
+  filter(!is.na(Period))
+
+# Summarize sampling events by period, gear, and site
+spatial_data <- spatial_events %>%
+  group_by(Period, Gear, Site) %>%
+  summarise(
+    sampling_events = n(),
+    positive_detections = sum(presence == 1, na.rm = TRUE),
+    total_shrimp = sum(abundance, na.rm = TRUE),
+    detected = any(presence == 1, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  left_join(
+    site_coordinates,
+    by = c("Site", "Gear"),
+    relationship = "many-to-one"
+  ) %>%
+  filter(
+    !is.na(latitude),
+    !is.na(longitude)
+  )
+
 # Convert to spatial features
 spatial_sf <- st_as_sf(
   spatial_data,
@@ -1234,19 +1224,11 @@ spatial_sf <- st_as_sf(
   remove = FALSE
 )
 
-# Verify sites and detections by period and gear
-spatial_data %>%
-  group_by(Period, Gear) %>%
-  summarise(
-    unique_sites = n_distinct(Site),
-    sampling_events = sum(sampling_events),
-    positive_events = sum(positive_events),
-    sites_with_detections = sum(detected),
-    .groups = "drop"
-  ) %>%
-  print(n = Inf)
-
-
+spatial_sf <- spatial_sf %>%
+  mutate(
+    percent_occurrence =
+      100 * positive_detections / sampling_events
+  )
 
 # BASEMAP
 
@@ -1279,7 +1261,7 @@ test_basemap <- ggplot() +
 test_basemap
 
 
-# REVISED MAP of SAMPLING LOCATIONS AND SHRIMP DETECTIONS
+# REVISED MAP OF SAMPLING LOCATIONS AND SHRIMP DETECTIONS
 
 fig_spatial_1990_2018 <- ggplot() +
   
@@ -1291,19 +1273,35 @@ fig_spatial_1990_2018 <- ggplot() +
   
   # Designated sampling locations
   geom_sf(
-    data = spatial_sf,
-    color = "gray45",
+    data = spatial_sf %>%
+      filter(detected),
+    aes(
+      color = Gear,
+      size = percent_occurrence
+    ),
+    alpha = 1
+  ) +
+  
+  # White shrimp detections colored by gear
+  # Sampling sites without white shrimp detections
+  geom_sf(
+    data = spatial_sf %>%
+      filter(!detected),
+    color = "black",
     size = 2,
     alpha = 0.7
   ) +
   
   # White shrimp detections colored by gear
+  # and sized by number of positive sampling events
   geom_sf(
     data = spatial_sf %>%
       filter(detected),
-    aes(color = Gear),
-    size = 2.5,
-    alpha = 1
+    aes(
+      color = Gear,
+      size = positive_detections
+    ),
+    alpha = 0.5
   ) +
   
   # Gear-specific colors
@@ -1318,6 +1316,12 @@ fig_spatial_1990_2018 <- ggplot() +
       "Bottom trawl (BTRW)",
       "Beach seine (BCHS100)"
     )
+  ) +
+  scale_size_continuous(
+    name = "Occurrence (%)",
+    range = c(2.5, 7),
+    limits = c(0, 100),
+    breaks = c(10, 25, 50, 75, 100)
   ) +
   
   # Separate maps by time period
@@ -1356,7 +1360,7 @@ fig_spatial_1990_2018 <- ggplot() +
     x = "Longitude",
     y = "Latitude",
     caption = paste(
-      "Gray = designated sampling sites;",
+      "Black = designated sampling sites;",
       "Red = BTRW detections;",
       "Blue = BCHS100 detections"
     )
@@ -1390,22 +1394,23 @@ fig_spatial_1990_2018
 
 
 
-spatial_data %>%
-  filter(
-    Site == "B013",
-    Period == "1990–2007"
-  ) %>%
-  select(
-    Period,
-    Gear,
-    Site,
-    sampling_events,
-    positive_events,
-    total_shrimp,
-    detected,
-    latitude,
-    longitude
+spatial_summary <- spatial_data %>%
+  group_by(Period, Gear) %>%
+  summarise(
+    sites_sampled = n_distinct(Site),
+    sites_detected = sum(detected),
+    sites_not_detected = sum(!detected),
+    sampling_events = sum(sampling_events),
+    positive_detections = sum(positive_detections),
+    total_shrimp = sum(total_shrimp),
+    percent_sites_detected =
+      100 * sites_detected / sites_sampled,
+    percent_occurrence =
+      100 * positive_detections / sampling_events,
+    .groups = "drop"
   )
+
+print(spatial_summary, width = Inf)
 
 # ============================================================
 # SEASONAL WHITE SHRIMP CATCH: APRIL–OCTOBER
