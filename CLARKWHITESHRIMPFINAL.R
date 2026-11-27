@@ -1337,19 +1337,22 @@ spatial_data %>%
 seasonal_data <- bind_rows(
   white_shrimp_1990_2012 %>%
     transmute(
-      Year, Month,
+      Year, Month, 
+      Site = as.character(`Site code`),
       Gear = as.character(`Gear Code`),
       abundance, presence
     ),
   white_shrimp_2013_2016 %>%
     transmute(
       Year, Month,
+      Site = as.character(`Site`),
       Gear = as.character(Gear),
       abundance, presence
     ),
   white_shrimp_2017_2018 %>%
     transmute(
-      Year, Month,
+      Year, Month, 
+      Site = as.character(`Site`),
       Gear = as.character(Gear),
       abundance, presence
     )
@@ -8337,6 +8340,7 @@ prelim_occurrence <- fall_1990_2018 %>%
 print(prelim_occurrence)
 
 ##Annual occurrence percentages and graph###
+
 
 
 annual_occurrence_sep <- fall_1990_2018 %>%
