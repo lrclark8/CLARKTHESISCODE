@@ -950,8 +950,10 @@ seine_sites <- tibble(
   )
 )
 
-# Combine and convert degrees/minutes to decimal degrees
-site_coordinates <- bind_rows(
+# Combine reference sites and convert degrees/minutes
+# to decimal degrees
+
+reference_coordinates <- bind_rows(
   trawl_sites,
   seine_sites
 ) %>%
@@ -959,198 +961,100 @@ site_coordinates <- bind_rows(
     latitude = 38 + lat_min / 60,
     longitude = -(75 + lon_min / 60)
   ) %>%
-  select(Site, Gear, latitude, longitude)
-
-# Verify the reference table
-print(site_coordinates, n = Inf)
-
-
-
-
-# Ensure reference gear codes match the dataset
-site_coordinates <- site_coordinates %>%
+  select(Site, Gear, latitude, longitude) %>%
   mutate(
-    Gear = if_else(Gear == "BCHS", "BCHS100", Gear)
+    coordinate_source = "Reference"
   )
 
+# Add available historical sampling-site coordinates
+
+site_coordinates <- bind_rows(
+  reference_coordinates,
+  historical_coordinates %>%
+    mutate(coordinate_source = "Historical")
+)
+
 # Verify unique site and gear combinations
+
 stopifnot(
   !anyDuplicated(site_coordinates[c("Gear", "Site")])
 )
 
-# Join reference coordinates without changing original data
-fall_mapped <- fall_1990_2018 %>%
-  left_join(
-    site_coordinates %>%
-      select(
-        Gear, Site,
-        ref_latitude = latitude,
-        ref_longitude = longitude
-      ),
-    by = c("Gear", "Site"),
-    relationship = "many-to-one"
-  ) %>%
-  mutate(
-    # Retain complete original coordinate pairs
-    original_valid =
-      !is.na(latitude) &
-      !is.na(longitude) &
-      between(latitude, 38.0, 38.5) &
-      between(longitude, -75.5, -75.0),
-    
-    map_latitude = if_else(
-      original_valid,
-      latitude,
-      ref_latitude
-    ),
-    
-    map_longitude = if_else(
-      original_valid,
-      longitude,
-      ref_longitude
-    ),
-    
-    coordinate_source = case_when(
-      original_valid ~ "Original",
-      !is.na(ref_latitude) &
-        !is.na(ref_longitude) ~ "Reference",
-      TRUE ~ "Missing"
-    )
-  )
+# Verify complete coordinate pairs
 
-# Check positive detections by coordinate source
-fall_mapped %>%
-  filter(presence == 1) %>%
-  mutate(
-    Period = if_else(
-      Year < 2008,
-      "1990–2007",
-      "2008–2018"
-    )
-  ) %>%
-  count(Period, Gear, coordinate_source) %>%
-  print(n = Inf)
+stopifnot(
+  all(is.finite(site_coordinates$latitude)),
+  all(is.finite(site_coordinates$longitude))
+)
 
+# Verify coordinate table
 
+print(site_coordinates, n = Inf)
 
-##CHECKING COORDINATE NUMBER MISMATCH##
-# Count unique site and gear combinations
-fall_1990_2018 %>%
-  distinct(Gear, Site) %>%
-  count(Gear, name = "unique_sites")
+site_coordinates %>%
+  count(Gear, coordinate_source)
 
-# Identify sites that do not match the reference table
-fall_1990_2018 %>%
-  distinct(Gear, Site) %>%
-  anti_join(
-    site_coordinates,
-    by = c("Gear", "Site")
-  ) %>%
-  print(n = Inf) 
-
-
-extra_sites <- fall_1990_2018 %>%
-  anti_join(
-    site_coordinates,
-    by = c("Gear", "Site")
-  )
-
-extra_site_summary <- extra_sites %>%
-  group_by(Gear, Site) %>%
-  summarise(
-    first_year = min(Year),
-    last_year = max(Year),
-    n_events = n(),
-    positive_events = sum(presence == 1, na.rm = TRUE),
-    events_with_coordinates = sum(
-      !is.na(latitude) & !is.na(longitude)
-    ),
-    .groups = "drop"
-  ) %>%
-  arrange(Gear, Site)
-
-print(extra_site_summary, n = Inf) 
-
-site_coverage <- fall_1990_2018 %>%
-  mutate(
-    Period = if_else(
-      Year < 2008,
-      "1990–2007",
-      "2008–2018"
-    )
-  ) %>%
-  left_join(
-    site_coordinates %>%
-      mutate(reference_site = TRUE) %>%
-      select(Gear, Site, reference_site),
-    by = c("Gear", "Site")
-  ) %>%
-  mutate(
-    site_group = if_else(
-      is.na(reference_site),
-      "Additional historical site",
-      "Designated reference site"
-    )
-  ) %>%
-  group_by(Period, Gear, site_group) %>%
-  summarise(
-    n_events = n(),
-    positive_events = sum(presence == 1, na.rm = TRUE),
-    total_shrimp = sum(abundance, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-print(site_coverage, n = Inf) 
 
 # ============================================================
-# 3M. Creating 39 detections dataset
-# ============================================================ 
+# 3M. SPATIAL DISTRIBUTION AND OCCURRENCE
+# ============================================================
 
-fall_mapped %>%
-  filter(presence == 1) %>%
-  mutate(
-    Period = if_else(
-      Year < 2008,
-      "1990–2007",
-      "2008–2018"
-    )
-  ) %>%
-  count(Period, Gear, coordinate_source) %>%
-  print(n = Inf)
+period_levels <- c(
+  "1990–2007",
+  "2008–2012",
+  "2013–2018"
+)
 
-site_detection_map <- fall_1990_2018 %>%
-  semi_join(
-    site_coordinates,
-    by = c("Gear", "Site")
+# Restrict sampling events to September and October
+
+spatial_events <- fall_1990_2018 %>%
+  filter(
+    Month %in% c(9, 10),
+    Gear %in% c("BTRW", "BCHS100")
   ) %>%
   mutate(
-    Period = if_else(
-      Year < 2008,
-      "1990–2007",
-      "2008–2018"
-    )
+    Period = case_when(
+      Year >= 1990 & Year <= 2007 ~ "1990–2007",
+      Year >= 2008 & Year <= 2012 ~ "2008–2012",
+      Year >= 2013 & Year <= 2018 ~ "2013–2018"
+    ),
+    Period = factor(Period, levels = period_levels)
   ) %>%
-  group_by(Gear, Site, Period) %>%
+  filter(!is.na(Period))
+
+# Summarize sampling events by period, gear, and site
+
+spatial_data <- spatial_events %>%
+  group_by(Period, Gear, Site) %>%
   summarise(
-    detected = any(presence == 1, na.rm = TRUE),
+    sampling_events = n(),
+    positive_detections = sum(presence == 1, na.rm = TRUE),
     total_shrimp = sum(abundance, na.rm = TRUE),
+    detected = any(presence == 1, na.rm = TRUE),
     .groups = "drop"
   ) %>%
   left_join(
     site_coordinates,
-    by = c("Gear", "Site"),
+    by = c("Site", "Gear"),
     relationship = "many-to-one"
+  ) %>%
+  filter(
+    !is.na(latitude),
+    !is.na(longitude)
+  ) %>%
+  mutate(
+    percent_occurrence =
+      100 * positive_detections / sampling_events
   )
 
-# Check number of sites represented in each period
-site_detection_map %>%
-  group_by(Period) %>%
-  summarise(
-    unique_sites = n_distinct(paste(Gear, Site)),
-    sites_with_detections = sum(detected),
-    .groups = "drop"
-  )
+# Convert to spatial features
 
+spatial_sf <- st_as_sf(
+  spatial_data,
+  coords = c("longitude", "latitude"),
+  crs = 4326,
+  remove = FALSE
+)
 
 # ============================================================
 # 3N. Revised Map
@@ -1401,28 +1305,29 @@ spatial_summary <- spatial_data %>%
     .groups = "drop"
   )
 
-print(spatial_summary, width = Inf) 
+print(spatial_summary, n = Inf, width = Inf) 
+
+unmapped_events <- spatial_events %>%
+  anti_join(
+    spatial_data,
+    by = c("Period", "Gear", "Site")
+  )
+
+unmapped_summary <- unmapped_events %>%
+  group_by(Period, Gear) %>%
+  summarise(
+    excluded_sites = n_distinct(Site),
+    excluded_events = n(),
+    positive_detections = sum(presence == 1, na.rm = TRUE),
+    total_shrimp = sum(abundance, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+print(unmapped_summary, n = Inf) 
 
 spatial_data %>%
-  mutate(
-    percent_occurrence =
-      100 * positive_detections / sampling_events
-  ) %>%
-  filter(detected) %>%
-  select(
-    Period,
-    Gear,
-    Site,
-    sampling_events,
-    positive_detections,
-    percent_occurrence
-  ) %>%
-  arrange(
-    Period,
-    Gear,
-    desc(percent_occurrence)
-  ) %>%
-  print(n = Inf)
+  distinct(Site, Gear, coordinate_source) %>%
+  count(Gear, coordinate_source)
 
 # ============================================================
 # SEASONAL WHITE SHRIMP CATCH: APRIL–OCTOBER
