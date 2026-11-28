@@ -8351,6 +8351,21 @@ annual_occurrence_sep <- fall_1990_2018 %>%
     positive_events = sum(presence, na.rm = TRUE),
     occurrence_percent = 100 * positive_events / total_events,
     .groups = "drop"
+  ) 
+
+
+fall_1990_2018 %>%
+  filter(
+    Gear == "BCHS100",
+    Year <= 2007
+  ) %>%
+  group_by(Year) %>%
+  summarise(
+    mean_area_m2 = mean(area_covered, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  summarise(
+    mean_annual_area = mean(mean_area_m2, na.rm = TRUE)
   )
 
 ggplot(
