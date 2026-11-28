@@ -1214,7 +1214,7 @@ fig_spatial_1990_2018 <- ggplot() +
     name = "Occurrence (%)",
     range = c(2.5, 7),
     limits = c(0, 100),
-    breaks = c(10, 25, 50, 75, 100)
+    breaks = c(2.5, 5, 10, 25, 50, 75, 100)
   ) +
   
   # Separate maps by time period
