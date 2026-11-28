@@ -8352,7 +8352,15 @@ annual_occurrence_sep_oct <- fall_1990_2018 %>%
     .groups = "drop"
   )
 
-
+annual_occurrence_sep_oct %>%
+  select(Year, Gear, occurrence_percent) %>%
+  pivot_wider(
+    names_from = Gear,
+    values_from = occurrence_percent
+  ) %>%
+  mutate(across(c(BTRW, BCHS100), ~ round(.x, 1))) %>%
+  arrange(Year) %>%
+  print(n = Inf)
 
 
 fall_1990_2018 %>%
